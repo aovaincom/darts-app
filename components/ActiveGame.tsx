@@ -5,12 +5,25 @@ import { getCheckoutGuide } from '../utils/checkouts';
 
 interface ActiveGameProps {
     settings: GameSettings;
-    game: any; // Käytetään 'any' tai importataan useGameLogic return type jos halutaan tiukka tyypitys
+    game: any; 
     onExit: () => void;
 }
 
 export const ActiveGame: React.FC<ActiveGameProps> = ({ settings, game, onExit }) => {
     const { players, currentPlayer, handleDartThrow, handleRTCAttempt, undoLastThrow, canUndo, isProcessing } = game;
+
+    // Renderöi heitetyt tikat (X01 sivupalkissa)
+    const renderVisit = (visit: any[]) => {
+        return (
+            <div className="flex gap-1 mt-1 h-6">
+                {visit.map((t, i) => (
+                    <div key={i} className="bg-slate-700 px-2 rounded text-xs flex items-center justify-center font-mono text-white">
+                        {t.multiplier > 1 ? (t.multiplier === 3 ? 'T' : 'D') : ''}{t.score}
+                    </div>
+                ))}
+            </div>
+        );
+    }
 
     const renderGameUI = () => {
         if (settings.gameMode === 'x01') {
@@ -75,82 +88,96 @@ export const ActiveGame: React.FC<ActiveGameProps> = ({ settings, game, onExit }
     };
 
     return (
-        <>
-         <div className="w-1/3 min-w-[350px] flex flex-col border-r border-slate-800 bg-slate-900">
-             <div className="p-4 border-b border-slate-800">
-                <h2 className="font-bold text-orange-500">{settings.gameMode === 'rtc' ? 'ROUND THE CLOCK' : 'GAME ON'}</h2>
-             </div>
-             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                 {players.map((p: PlayerState) => {
-                     const isTurn = currentPlayer?.id === p.id;
-                     return (
-                         <div key={p.id} className={`rounded-xl p-4 border-l-4 ${isTurn ? 'bg-slate-800 border-green-500' : 'bg-slate-900/50 border-slate-700 opacity-60'}`}>
-                             <div className="flex justify-between items-start">
-                                 <div>
-                                     <div className="font-bold text-lg">{p.name} {p.isBot && <span className="text-xs text-blue-400 border border-blue-500 px-1 rounded ml-1">BOT</span>}</div>
-                                     <div className="text-xs text-gray-400 mt-1">
-                                         {settings.gameMode === 'rtc' ? `Darts: ${p.stats.rtcDartsThrown}` : 
-                                            <span className="flex gap-2">
-                                                <span>L: {p.legsWon}</span>
-                                                {settings.matchMode === 'sets' && <span>S: {p.setsWon}</span>}
-                                            </span>
-                                         }
-                                     </div>
-                                 </div>
-                                 <div className="text-right">
-                                     {settings.gameMode === 'rtc' ? (
-                                         <div className="text-2xl font-mono font-bold text-blue-400">Target: {p.rtcTarget === 21 ? 'BULL' : p.rtcTarget}</div>
-                                     ) : (
-                                         <div className="text-4xl font-mono font-bold">{p.scoreLeft}</div>
-                                     )}
-                                 </div>
-                             </div>
-                         </div>
-                     )
-                 })}
-             </div>
-         </div>
+        <div className="flex h-full w-full">
+            {/* --- SIDEBAR (PELAAJALISTA) --- */}
+            <div className="w-1/3 min-w-[300px] flex flex-col border-r border-slate-800 bg-slate-900">
+                <div className="p-4 border-b border-slate-800">
+                    <h2 className="font-bold text-orange-500 tracking-wider">
+                        {settings.gameMode === 'rtc' ? 'ROUND THE CLOCK' : 'GAME ON'}
+                    </h2>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    {players.map((p: PlayerState) => {
+                        const isTurn = currentPlayer?.id === p.id;
+                        return (
+                            <div key={p.id} className={`rounded-xl p-4 border-l-4 transition-all ${isTurn ? 'bg-slate-800 border-green-500 shadow-lg' : 'bg-slate-900/50 border-slate-700 opacity-60'}`}>
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <div className="font-bold text-lg text-white flex items-center gap-2">
+                                            {p.name}
+                                            {p.isBot && <span className="text-[10px] bg-blue-900 text-blue-200 px-1 rounded border border-blue-700">BOT</span>}
+                                        </div>
+                                        <div className="text-xs text-gray-400 mt-1 font-mono">
+                                            {settings.gameMode === 'rtc' ? `Darts: ${p.stats.rtcDartsThrown}` : `Avg: ${p.stats.average}`}
+                                        </div>
+                                        {/* Näytä heitot jos X01 */}
+                                        {settings.gameMode === 'x01' && renderVisit(p.currentVisit)}
+                                    </div>
+                                    <div className="text-right">
+                                        {settings.gameMode === 'rtc' ? (
+                                            <div className="text-2xl font-mono font-bold text-blue-400">
+                                                {p.rtcFinished ? 'DONE' : (p.rtcTarget === 21 ? 'BULL' : p.rtcTarget)}
+                                            </div>
+                                        ) : (
+                                            <div className="text-4xl font-mono font-bold text-white">{p.scoreLeft}</div>
+                                        )}
+                                        {settings.matchMode === 'sets' && settings.gameMode === 'x01' && (
+                                            <div className="text-xs text-gray-500 mt-1">S:{p.setsWon} L:{p.legsWon}</div>
+                                        )}
+                                        {settings.matchMode === 'legs' && settings.gameMode === 'x01' && (
+                                            <div className="text-xs text-gray-500 mt-1">Legs: {p.legsWon}</div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
+            </div>
 
-         <div className="flex-1 flex flex-col items-center justify-center p-4 bg-slate-900 relative">
-             <div className="absolute top-4 right-4 flex gap-2">
-                 <button 
-                    onClick={undoLastThrow}
-                    disabled={!canUndo}
-                    className="bg-yellow-600/50 hover:bg-yellow-600 disabled:opacity-30 disabled:cursor-not-allowed px-4 py-2 rounded text-yellow-100 font-bold border border-yellow-500"
-                 >
-                     UNDO
-                 </button>
-                 <button onClick={onExit} className="bg-red-900/50 hover:bg-red-900 px-4 py-2 rounded text-red-200 font-bold border border-red-800">EXIT</button>
-             </div>
-             
-             <div className="mb-4 text-center">
-                 <h2 className="text-4xl font-bold mb-1">{currentPlayer?.name}</h2>
-                 <p className="text-blue-500 text-sm uppercase tracking-widest">{settings.gameMode === 'rtc' ? 'Hit target?' : 'Throw Darts'}</p>
-             </div>
+            {/* --- MAIN GAME AREA --- */}
+            <div className="flex-1 flex flex-col items-center justify-center p-4 bg-slate-950 relative">
+                <div className="absolute top-4 right-4 flex gap-2">
+                    <button 
+                        onClick={undoLastThrow}
+                        disabled={!canUndo}
+                        className="bg-yellow-600/20 hover:bg-yellow-600/40 disabled:opacity-30 disabled:cursor-not-allowed px-4 py-2 rounded text-yellow-100 font-bold border border-yellow-600/50 transition-colors"
+                    >
+                        UNDO
+                    </button>
+                    <button onClick={onExit} className="bg-red-900/20 hover:bg-red-900/40 px-4 py-2 rounded text-red-200 font-bold border border-red-800/50 transition-colors">EXIT</button>
+                </div>
+                
+                <div className="mb-6 text-center">
+                    <h2 className="text-5xl font-bold mb-2 text-white drop-shadow-md">{currentPlayer?.name}</h2>
+                    <p className="text-blue-400 text-sm uppercase tracking-[0.2em] font-semibold">
+                        {settings.gameMode === 'rtc' ? (currentPlayer?.isBot ? 'Bot playing...' : 'Hit target?') : (currentPlayer?.isBot ? 'Bot playing...' : 'Throw Darts')}
+                    </p>
+                </div>
 
-             {renderGameUI()}
+                {renderGameUI()}
 
-             {settings.gameMode === 'x01' && (
-                 <div className="mt-8 w-full max-w-sm bg-slate-800/80 p-4 rounded-xl border border-slate-700 flex justify-between h-16 items-center">
-                     <span className="text-gray-400">Checkout:</span>
-                     
-                     {(() => {
-                        const score = currentPlayer?.scoreLeft || 0;
-                        const dartsRemaining = 3 - (currentPlayer?.currentVisit.length || 0);
-                        let possible = true;
+                {settings.gameMode === 'x01' && (
+                    <div className="mt-8 w-full max-w-sm bg-slate-800/50 backdrop-blur p-4 rounded-xl border border-slate-700 flex justify-between h-16 items-center shadow-lg">
+                        <span className="text-gray-400 text-sm uppercase font-bold tracking-wider">Checkout</span>
+                        
+                        {(() => {
+                            const score = currentPlayer?.scoreLeft || 0;
+                            const dartsRemaining = 3 - (currentPlayer?.currentVisit.length || 0);
+                            let possible = true;
 
-                        if (dartsRemaining === 1 && score > 50) possible = false;
-                        if (dartsRemaining === 2 && score > 110) possible = false;
-                        if (dartsRemaining === 3 && score > 170) possible = false;
+                            if (dartsRemaining === 1 && score > 50) possible = false;
+                            if (dartsRemaining === 2 && score > 110) possible = false;
+                            if (dartsRemaining === 3 && score > 170) possible = false;
 
-                        if (!possible) return <span className="text-gray-600 italic">No checkout</span>;
+                            if (!possible) return <span className="text-gray-600 italic text-sm">No checkout</span>;
 
-                        const guide = getCheckoutGuide(score);
-                        return <span className="font-mono font-bold text-green-400 text-xl">{guide || "-"}</span>;
-                     })()}
-                 </div>
-             )}
-         </div>
-         </>
+                            const guide = getCheckoutGuide(score);
+                            return <span className="font-mono font-bold text-green-400 text-2xl">{guide || "-"}</span>;
+                        })()}
+                    </div>
+                )}
+            </div>
+        </div>
     );
 }

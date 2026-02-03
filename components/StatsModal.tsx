@@ -40,7 +40,6 @@ export const StatsModal: React.FC<StatsModalProps> = ({ profile, onClose }) => {
     const [rollingWindow, setRollingWindow] = useState(10);
     const [isClient, setIsClient] = useState(false);
 
-    // Estetään hydraatio-ongelmat (Recharts vaatii client-renderöinnin)
     useEffect(() => {
         setIsClient(true);
     }, []);
@@ -58,19 +57,16 @@ export const StatsModal: React.FC<StatsModalProps> = ({ profile, onClose }) => {
     return (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-4">
             <div className="bg-slate-800 w-full max-w-6xl h-[95vh] rounded-2xl border border-slate-700 flex flex-col overflow-hidden shadow-2xl">
-                {/* Header */}
                 <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-900">
                     <h2 className="text-3xl font-bold text-white">{profile.name} <span className="text-gray-500 text-lg">Statistics</span></h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-white text-4xl leading-none">&times;</button>
                 </div>
 
-                {/* Tabs */}
                 <div className="flex border-b border-slate-700 bg-slate-800">
                     <button onClick={() => setTab('x01')} className={`flex-1 py-4 font-bold text-lg transition-colors ${tab === 'x01' ? 'bg-slate-700 text-green-400 border-b-2 border-green-400' : 'text-gray-400 hover:bg-slate-700/50'}`}>X01 & Progress</button>
                     <button onClick={() => setTab('rtc')} className={`flex-1 py-4 font-bold text-lg transition-colors ${tab === 'rtc' ? 'bg-slate-700 text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:bg-slate-700/50'}`}>Training (RTC) & Progress</button>
                 </div>
 
-                {/* Content */}
                 <div className="flex-1 overflow-y-auto p-6 bg-slate-900/50">
                     {tab === 'x01' ? (
                         <div className="space-y-8">
@@ -81,21 +77,6 @@ export const StatsModal: React.FC<StatsModalProps> = ({ profile, onClose }) => {
                                 <StatBox label="180s" value={profile.stats.scores180} color="text-red-500" />
                                 <StatBox label="100+ Checkouts" value={profile.stats.tonPlusFinishes} color="text-purple-400" />
                                 <StatBox label="Total Darts" value={profile.stats.totalDarts} color="text-gray-300" />
-                            </div>
-
-                            <div className="bg-slate-800 p-4 rounded-xl border border-slate-700">
-                                <h3 className="text-sm font-bold text-gray-400 uppercase mb-3">Scoring Consistency</h3>
-                                <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-center">
-                                    {['60+', '80+', '100+', '120+', '140+', '180'].map((label, i) => {
-                                        const keys = ['scores60plus', 'scores80plus', 'scores100plus', 'scores120plus', 'scores140plus', 'scores180'] as const;
-                                        return (
-                                            <div key={label} className="bg-slate-900/50 p-2 rounded border border-slate-700/50">
-                                                <div className="text-xs text-gray-500 mb-1">{label}</div>
-                                                <div className="text-lg font-bold text-white">{profile.stats[keys[i]]}</div>
-                                            </div>
-                                        )
-                                    })}
-                                </div>
                             </div>
 
                             <GraphSection 
@@ -168,36 +149,37 @@ const GraphSection = ({ title, data, dataKey, window, setWindow, color, domain }
         <div className="flex justify-between items-center mb-6">
             <h3 className="text-xl font-bold text-gray-200">{title}</h3>
             <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-400">Rolling Window:</span>
+                <span className="text-sm text-gray-400">Window:</span>
                 <select 
                     value={window} 
                     onChange={(e) => setWindow(Number(e.target.value))}
                     className="bg-slate-900 text-white border border-slate-600 rounded px-2 py-1 text-sm outline-none focus:border-green-500"
                 >
-                    <option value="5">5 Games</option>
-                    <option value="10">10 Games</option>
-                    <option value="20">20 Games</option>
-                    <option value="50">50 Games</option>
+                    <option value="5">5</option>
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
                 </select>
             </div>
         </div>
         
-        <div className="h-80 w-full">
+        {/* KORJAUS: style={{ width: '100%', height: 300 }} varmistaa että containerilla on koko */}
+        <div style={{ width: '100%', height: 300 }}>
             {data.length > 1 ? (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
-                        <XAxis dataKey="gameIndex" stroke="#94a3b8" fontSize={12} label={{ value: 'Games Played', position: 'insideBottomRight', offset: -5, fill: '#64748b' }} />
+                        <XAxis dataKey="gameIndex" stroke="#94a3b8" fontSize={12} label={{ value: 'Games', position: 'insideBottomRight', offset: -5, fill: '#64748b' }} />
                         <YAxis stroke="#94a3b8" domain={domain || ['auto', 'auto']} fontSize={12} />
                         <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }} labelFormatter={(label) => `Game #${label}`} />
                         <Legend wrapperStyle={{ paddingTop: '10px' }}/>
-                        <Line name={`Rolling (${window})`} type="monotone" dataKey={dataKey} stroke={color} strokeWidth={3} dot={false} activeDot={{r: 6}} />
+                        <Line name={`Rolling`} type="monotone" dataKey={dataKey} stroke={color} strokeWidth={3} dot={false} activeDot={{r: 6}} />
                         <Line name="Cumulative" type="monotone" dataKey="cumulative" stroke="#facc15" strokeWidth={2} strokeDasharray="5 5" dot={false} />
                     </LineChart>
                 </ResponsiveContainer>
             ) : (
                 <div className="h-full flex items-center justify-center text-gray-500 bg-slate-900/50 rounded-lg border border-slate-700 border-dashed">
-                    Not enough data yet. Play more games!
+                    Not enough data yet.
                 </div>
             )}
         </div>
