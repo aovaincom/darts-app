@@ -118,28 +118,19 @@ const StatBox = ({ label, value, color = "text-white" }: { label: string, value:
     </div>
 );
 
+// components/StatsModal.tsx - GraphSection komponentti tiedoston lopussa
+
 const GraphSection = ({ title, data, dataKey, window, setWindow, color, domain }: any) => (
     <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-inner">
         <div className="flex justify-between items-center mb-6">
             <h3 className="text-xl font-bold text-gray-200">{title}</h3>
-            <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-400">Window:</span>
-                <select 
-                    value={window} 
-                    onChange={(e) => setWindow(Number(e.target.value))}
-                    className="bg-slate-900 text-white border border-slate-600 rounded px-2 py-1 text-sm outline-none focus:border-green-500"
-                >
-                    <option value="5">5</option>
-                    <option value="10">10</option>
-                    <option value="20">20</option>
-                </select>
-            </div>
+            {/* ... select window code ... */}
         </div>
         
-        {/* KIINTEÄ KOKO = VARMA TOIMINTA */}
+        {/* POISTETTU ResponsiveContainer. Käytetään kiinteää diviä ja Charttia */}
         <div className="flex justify-center overflow-x-auto">
             {data.length > 1 ? (
-                <LineChart width={800} height={300} data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <LineChart width={600} height={300} data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} />
                     <XAxis dataKey="gameIndex" stroke="#94a3b8" fontSize={12} />
                     <YAxis stroke="#94a3b8" domain={domain || ['auto', 'auto']} fontSize={12} />
