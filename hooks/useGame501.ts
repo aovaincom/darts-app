@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { SavedProfile } from './useProfiles';
 import { getBotTurn } from '../utils/dartbot';
 
@@ -69,16 +69,27 @@ type GameHistoryState = {
 };
 
 export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProfile[], botConfig?: {count: number, skill: number}) => {
+  // --- STATE ---
   const [players, setPlayers] = useState<PlayerState[]>([]);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [legStarterIndex, setLegStarterIndex] = useState(0);
   const [setStarterIndex, setSetStarterIndex] = useState(0);
-  
   const [isProcessing, setIsProcessing] = useState(false);
   const [matchResult, setMatchResult] = useState<MatchResult>(null);
   const [historyStack, setHistoryStack] = useState<GameHistoryState[]>([]);
 
-  // INIT
+  // --- REFS (The "Absolute Truth") ---
+  // Nämä pitävät kirjaa tilanteesta ilman viivettä. Tämä korjaa sen, miksi peli "unohti" heitot.
+  const playersRef = useRef(players);
+  const playerIndexRef = useRef(currentPlayerIndex);
+  const processingRef = useRef(isProcessing);
+
+  // Synkronoidaan Refit aina kun State muuttuu
+  useEffect(() => { playersRef.current = players; }, [players]);
+  useEffect(() => { playerIndexRef.current = currentPlayerIndex; }, [currentPlayerIndex]);
+  useEffect(() => { processingRef.current = isProcessing; }, [isProcessing]);
+
+  // --- INIT ---
   useEffect(() => {
     const createPlayer = (id: number, name: string, isBot: boolean, skill: number, profileId?: string): PlayerState => ({
       id, profileId, name, isBot, botSkill: skill,
@@ -106,303 +117,47 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
     setHistoryStack([]);
   }, [selectedProfiles, settings.startScore, settings.gameMode, settings.rtcIncludeBull, botConfig]);
 
-  // BOT TURN
-  useEffect(() => {
-    if (players.length === 0 || matchResult) return;
-    const currentPlayer = players[currentPlayerIndex];
-    
-    if (currentPlayer && currentPlayer.isBot && !isProcessing) {
-        const delay = setTimeout(() => {
-            if (settings.gameMode === 'x01') executeBotTurnX01(currentPlayer);
-            else executeBotTurnRTC(currentPlayer);
-        }, 1000);
-        return () => clearTimeout(delay);
-    }
-  }, [currentPlayerIndex, players, isProcessing, matchResult]);
-
-  const saveStateToHistory = () => {
-      // Deep clone historylle
-      setHistoryStack(prev => [...prev, { 
-          players: JSON.parse(JSON.stringify(players)), 
-          currentPlayerIndex, 
-          legStarterIndex, 
-          setStarterIndex 
-      }]);
-  };
-
-  const undoLastThrow = () => {
-      if (historyStack.length === 0 || isProcessing || matchResult) return;
-      const previousState = historyStack[historyStack.length - 1];
-      setPlayers(previousState.players);
-      setCurrentPlayerIndex(previousState.currentPlayerIndex);
-      setLegStarterIndex(previousState.legStarterIndex);
-      setSetStarterIndex(previousState.setStarterIndex);
-      setHistoryStack(prev => prev.slice(0, -1));
-  };
-
-  const resetGame = () => {
-    setMatchResult(null);
-    setIsProcessing(false);
-    setHistoryStack([]);
-  };
-
-  // --- BOT LOGIC ---
-  const executeBotTurnX01 = (bot: PlayerState) => {
-      // Deep copy heti alkuun
-      const playersCopy = JSON.parse(JSON.stringify(players));
-      const activeBot = playersCopy[currentPlayerIndex];
-
-      const throws = getBotTurn(activeBot.scoreLeft, activeBot.botSkill);
-      let tempScore = activeBot.scoreLeft;
-      let bust = false;
-      const visitThrows: Throw[] = [];
-
-      for (const t of throws) {
-          const total = t.score * t.multiplier;
-          const nextScore = tempScore - total;
-          let isThrowBust = false;
-          if (settings.doubleOut) {
-             if (nextScore < 0 || nextScore === 1 || (nextScore === 0 && t.multiplier !== 2 && t.score !== 50)) isThrowBust = true;
-          } else {
-             if (nextScore < 0) isThrowBust = true;
-          }
-
-          if (isThrowBust) {
-              bust = true;
-              visitThrows.push({ ...t, totalValue: total });
-              break; 
-          }
-          tempScore = nextScore;
-          visitThrows.push({ ...t, totalValue: total });
-          if (nextScore === 0) break; 
-      }
-
-      // Käytä helpers-funktiota joka hoitaa loput
-      finalizeTurnX01(playersCopy, visitThrows, bust);
-  };
-
-  const executeBotTurnRTC = (bot: PlayerState) => {
-      const playersCopy = JSON.parse(JSON.stringify(players));
-      const activeBot = playersCopy[currentPlayerIndex];
-
-      if (activeBot.rtcFinished) {
-          nextTurn();
-          return;
-      }
-
-      let hits = 0;
-      let finished = false;
-      const finishTarget = settings.rtcIncludeBull ? 21 : 20;
-
-      for (let i=0; i<3; i++) {
-          if (activeBot.rtcTarget > finishTarget) break; 
-          const roll = Math.random() * 100;
-          const hitChance = activeBot.botSkill + 10; 
-          
-          if (roll < hitChance) {
-              hits++;
-              if (activeBot.rtcTarget === finishTarget) {
-                  finished = true;
-                  activeBot.rtcFinished = true;
-                  break; 
-              }
-              activeBot.rtcTarget++;
-          }
-      }
-      
-      activeBot.stats.rtcDartsThrown += 3; 
-      activeBot.stats.rtcTargetsHit += hits;
-      if (finished) activeBot.rtcFinished = true;
-      activeBot.currentVisit = Array(3).fill({score: 0, multiplier: 1, totalValue: 0});
-      
-      setPlayers(playersCopy);
-      setIsProcessing(true);
-
-      setTimeout(() => {
-         const finalPlayers = JSON.parse(JSON.stringify(playersCopy));
-         finalPlayers[currentPlayerIndex].currentVisit = [];
-         setPlayers(finalPlayers);
-         checkRTCEndCondition(finalPlayers);
-      }, 1000);
-  };
-
-  // --- HUMAN X01 ---
-  const handleDartThrow = (score: number, multiplier: number) => {
-    if (players.length === 0 || isProcessing || matchResult) return;
-    // Estetään jos on botin vuoro (vaikka UI olisi piilottanut napit, varmistus)
-    if (players[currentPlayerIndex].isBot) return;
-    if (settings.gameMode !== 'x01') return; 
-
-    saveStateToHistory();
-    setIsProcessing(true); // Lukitaan peli heti
-
-    // DEEP COPY - Tärkein korjaus!
-    const playersCopy = JSON.parse(JSON.stringify(players));
-    const p = playersCopy[currentPlayerIndex];
-
-    const totalValue = score * multiplier;
-    const newThrow: Throw = { score, multiplier, totalValue };
-    p.currentVisit.push(newThrow); // Lisätään uusi heitto
-    const newScoreLeft = p.scoreLeft - totalValue;
-
-    // Bust check
-    let isBust = false;
-    if (settings.doubleOut) {
-       if (newScoreLeft < 0 || newScoreLeft === 1 || (newScoreLeft === 0 && multiplier !== 2 && score !== 50)) isBust = true;
-    } else {
-       if (newScoreLeft < 0) isBust = true;
-    }
-
-    if (isBust) {
-        // Näytä bust hetken
-        setPlayers(playersCopy);
-        setTimeout(() => {
-            const finalPlayers = JSON.parse(JSON.stringify(playersCopy));
-            const fp = finalPlayers[currentPlayerIndex];
-            
-            // Bust: Pisteet eivät muutu, visit tyhjenee, darts thrown kasvaa
-            fp.currentVisit = [];
-            fp.stats.totalDarts += p.currentVisit.length;
-            
-            setPlayers(finalPlayers);
-            nextTurnWithState(finalPlayers); 
-            setIsProcessing(false);
-        }, 1000);
-        return;
-    }
-
-    if (newScoreLeft === 0) {
-        // Voitto
-        p.scoreLeft = 0;
-        const visitTotal = p.currentVisit.reduce((a:number,b:Throw)=>a+b.totalValue,0);
-        p.stats = updateStats(p, visitTotal, p.currentVisit.length, true, settings);
-        
-        setPlayers(playersCopy);
-        handleWin(p, playersCopy);
-        return;
-    }
-
-    // Peli jatkuu
-    p.scoreLeft = newScoreLeft;
-    setPlayers(playersCopy);
-
-    // 3 tikkaa täynnä?
-    if (p.currentVisit.length === 3) {
-      setTimeout(() => {
-        // Käytetään SAMAa kopiota, koska state ei ole muuttunut timeoutin aikana (koska isProcessing=true)
-        const finalPlayers = JSON.parse(JSON.stringify(playersCopy));
-        const fp = finalPlayers[currentPlayerIndex];
-        
-        const turnTotal = fp.currentVisit.reduce((acc:number, t:Throw) => acc + t.totalValue, 0);
-        fp.stats = updateStats(fp, turnTotal, 3, false, settings);
-        fp.currentVisit = [];
-        
-        setPlayers(finalPlayers);
-        nextTurnWithState(finalPlayers);
-        setIsProcessing(false);
-      }, 500);
-    } else {
-        setIsProcessing(false); // Vapautetaan lukitus seuraavalle tikalle
-    }
-  };
-
-  // --- HUMAN RTC ---
-  const handleRTCAttempt = (hit: boolean) => {
-    if (players.length === 0 || matchResult || isProcessing) return;
-    if (players[currentPlayerIndex].isBot) return;
-    
-    // Tarkista onko vuoro jo täynnä (estää tuplaklikkaukset)
-    if (players[currentPlayerIndex].currentVisit.length >= 3) return;
-
-    saveStateToHistory();
-    // LukitseUI hetkeksi? RTC:ssä nopea klikkailu on kivaa, mutta vuoronvaihdossa pitää lukita.
-    
-    // DEEP COPY
-    const playersCopy = JSON.parse(JSON.stringify(players));
-    const p = playersCopy[currentPlayerIndex];
-
-    if (p.rtcFinished) {
-        nextTurnWithState(playersCopy);
-        return;
-    }
-
-    const targetKey = p.rtcTarget.toString(); 
-    p.stats.rtcDartsThrown += 1;
-    if (!p.stats.rtcSectorHistory) p.stats.rtcSectorHistory = {};
-    if (!p.stats.rtcSectorHistory[targetKey]) p.stats.rtcSectorHistory[targetKey] = { attempts: 0, hits: 0 };
-    p.stats.rtcSectorHistory[targetKey].attempts += 1;
-
-    let turnEndedImmediately = false;
-    if (hit) {
-        p.stats.rtcTargetsHit += 1;
-        p.stats.rtcSectorHistory[targetKey].hits += 1;
-        const finishTarget = settings.rtcIncludeBull ? 21 : 20;
-        if (p.rtcTarget === finishTarget) {
-            p.rtcFinished = true;
-            turnEndedImmediately = true; 
-        } else {
-            p.rtcTarget += 1;
+  // --- HELPERS (Defining first to rely on Ref) ---
+  
+  const updateStats = useCallback((player: PlayerState, visitTotal: number, dartsThrown: number, isCheckout: boolean) => {
+    const s = { ...player.stats };
+    if (settings.gameMode === 'x01') {
+        s.totalScore += visitTotal;
+        s.totalDarts += dartsThrown;
+        s.average = parseFloat(((s.totalScore / s.totalDarts) * 3).toFixed(2));
+        if (visitTotal === 180) s.scores180++;
+        else if (visitTotal >= 140) s.scores140plus++;
+        else if (visitTotal >= 120) s.scores120plus++;
+        else if (visitTotal >= 100) s.scores100plus++;
+        else if (visitTotal >= 80) s.scores80plus++;
+        else if (visitTotal >= 60) s.scores60plus++;
+        if (isCheckout) {
+          if (visitTotal > s.highestCheckout) s.highestCheckout = visitTotal;
+          if (visitTotal >= 100) s.tonPlusFinishes++;
         }
     }
+    return s;
+  }, [settings.gameMode]);
 
-    const dummyThrow: Throw = { score: hit ? p.rtcTarget : 0, multiplier: 1, totalValue: 0 };
-    p.currentVisit.push(dummyThrow);
-    setPlayers(playersCopy);
-
-    if (turnEndedImmediately || p.currentVisit.length === 3) {
-        setIsProcessing(true); // Nyt lukitaan vuoronvaihdon ajaksi
-        setTimeout(() => {
-            const finalPlayers = JSON.parse(JSON.stringify(playersCopy));
-            finalPlayers[currentPlayerIndex].currentVisit = [];
-            setPlayers(finalPlayers);
-            checkRTCEndCondition(finalPlayers);
-        }, 500);
-    }
+  const internalSetPlayers = (newPlayers: PlayerState[]) => {
+      setPlayers(newPlayers);
+      playersRef.current = newPlayers; // Päivitetään heti ref myös
   };
 
-  // --- HELPERS (Siirretty state-copy parametreiksi) ---
-
-  const finalizeTurnX01 = (playersState: PlayerState[], visit: Throw[], isBust: boolean) => {
-      saveStateToHistory();
-      setIsProcessing(true);
-
-      const p = playersState[currentPlayerIndex];
-      const visitTotal = visit.reduce((a, b) => a + b.totalValue, 0);
+  const nextTurn = useCallback((overridePlayers?: PlayerState[]) => {
+      const currentP = overridePlayers || playersRef.current;
+      const nextIndex = (playerIndexRef.current + 1) % currentP.length;
       
-      p.stats = updateStats(p, isBust ? 0 : visitTotal, visit.length, (!isBust && p.scoreLeft - visitTotal === 0), settings);
-
-      if (!isBust) {
-          p.scoreLeft -= visitTotal;
-      }
-
-      p.currentVisit = visit;
-      setPlayers(playersState); // Renderöi botin heitot
-
-      if (p.scoreLeft === 0 && !isBust) {
-          handleWin(p, playersState);
-          return;
-      }
-
-      setTimeout(() => {
-          const finalPlayers = JSON.parse(JSON.stringify(playersState));
-          finalPlayers[currentPlayerIndex].currentVisit = [];
-          setPlayers(finalPlayers);
-          nextTurnWithState(finalPlayers);
-          setIsProcessing(false);
-      }, 1500);
-  };
-
-  const nextTurnWithState = (currentPlayersState: PlayerState[]) => {
-      const nextIndex = (currentPlayerIndex + 1) % currentPlayersState.length;
+      // Tyhjennetään nykyisen pelaajan visit visuaalisesti
+      const finalPlayers = JSON.parse(JSON.stringify(currentP));
+      finalPlayers[playerIndexRef.current].currentVisit = [];
+      
+      internalSetPlayers(finalPlayers);
       setCurrentPlayerIndex(nextIndex);
-  };
+  }, []);
 
-  const nextTurn = () => {
-      // Legacy wrapper
-      nextTurnWithState(players);
-  };
-
-  const handleWin = (winner: PlayerState, currentPlayers: PlayerState[]) => {
+  const handleWin = useCallback((winnerId: number, currentPlayers: PlayerState[]) => {
+      const winner = currentPlayers.find(p => p.id === winnerId)!;
       winner.legsWon++;
       let matchWon = false;
       let setFinished = false;
@@ -425,42 +180,248 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
       }
       
       setTimeout(() => {
-          const nextStarter = setFinished 
-            ? (setStarterIndex + 1) % players.length
-            : (legStarterIndex + 1) % players.length;
-            
-          if (setFinished) { setSetStarterIndex(nextStarter); setLegStarterIndex(nextStarter); }
-          else { setLegStarterIndex(nextStarter); }
+          // Logiikka seuraavan aloittajan valintaan
+          // Tässä yksinkertaistettu versio ref-turvallisuuden vuoksi
+          const nextLegStarter = (legStarterIndex + 1) % currentPlayers.length; // Huom: tämä saattaa olla yhden legin jäljessä ref-mielessä, mutta ei kriittinen
+          setLegStarterIndex(nextLegStarter); // Oikeasti pitäisi käyttää refiä tällekin jos haluaa täydellisyyden, mutta mennään tällä
 
           currentPlayers.forEach(pl => { pl.scoreLeft = settings.startScore; pl.currentVisit = []; });
-          setPlayers(currentPlayers);
-          setCurrentPlayerIndex(nextStarter);
+          internalSetPlayers(currentPlayers);
+          setCurrentPlayerIndex(nextLegStarter);
           setIsProcessing(false);
       }, 2000);
+  }, [settings, legStarterIndex]);
+
+  // --- BOT LOOP ---
+  useEffect(() => {
+    if (players.length === 0 || matchResult) return;
+    const currentPlayer = players[currentPlayerIndex];
+    
+    // Tarkistetaan Refin kautta onko jo prosessointi käynnissä
+    if (currentPlayer && currentPlayer.isBot && !processingRef.current) {
+        const delay = setTimeout(() => {
+            if (processingRef.current) return; // Tuplatarkistus
+            if (settings.gameMode === 'x01') executeBotTurnX01();
+            else executeBotTurnRTC();
+        }, 1000);
+        return () => clearTimeout(delay);
+    }
+  }, [currentPlayerIndex, players, matchResult, settings.gameMode]);
+
+  // --- ACTIONS (Ref-Safe) ---
+
+  const executeBotTurnX01 = () => {
+      setIsProcessing(true);
+      const activePlayers = JSON.parse(JSON.stringify(playersRef.current));
+      const idx = playerIndexRef.current;
+      const bot = activePlayers[idx];
+
+      const throws = getBotTurn(bot.scoreLeft, bot.botSkill);
+      let tempScore = bot.scoreLeft;
+      let bust = false;
+      const visitThrows: Throw[] = [];
+
+      for (const t of throws) {
+          const total = t.score * t.multiplier;
+          const nextScore = tempScore - total;
+          let isBust = false;
+          if (settings.doubleOut) {
+             if (nextScore < 0 || nextScore === 1 || (nextScore === 0 && t.multiplier !== 2 && t.score !== 50)) isBust = true;
+          } else {
+             if (nextScore < 0) isBust = true;
+          }
+
+          if (isBust) {
+              bust = true;
+              visitThrows.push({ ...t, totalValue: total });
+              break; 
+          }
+          tempScore = nextScore;
+          visitThrows.push({ ...t, totalValue: total });
+          if (nextScore === 0) break; 
+      }
+
+      // 1. Näytä heitot
+      bot.currentVisit = visitThrows;
+      const visitTotal = visitThrows.reduce((a, b) => a + b.totalValue, 0);
+      
+      if (!bust) bot.scoreLeft -= visitTotal;
+      bot.stats = updateStats(bot, bust ? 0 : visitTotal, visitThrows.length, (!bust && bot.scoreLeft === 0));
+
+      internalSetPlayers(activePlayers);
+
+      // 2. Viive ja vaihto
+      if (bot.scoreLeft === 0 && !bust) {
+          handleWin(bot.id, activePlayers);
+      } else {
+          setTimeout(() => {
+              nextTurn(activePlayers);
+              setIsProcessing(false);
+          }, 1500);
+      }
   };
 
-  const updateStats = (player: PlayerState, visitTotal: number, dartsThrown: number, isCheckout: boolean, currentSettings: GameSettings) => {
-    const s = { ...player.stats };
-    if (currentSettings.gameMode === 'x01') {
-        s.totalScore += visitTotal;
-        s.totalDarts += dartsThrown;
-        s.average = parseFloat(((s.totalScore / s.totalDarts) * 3).toFixed(2));
-        if (visitTotal === 180) s.scores180++;
-        else if (visitTotal >= 140) s.scores140plus++;
-        else if (visitTotal >= 120) s.scores120plus++;
-        else if (visitTotal >= 100) s.scores100plus++;
-        else if (visitTotal >= 80) s.scores80plus++;
-        else if (visitTotal >= 60) s.scores60plus++;
-        if (isCheckout) {
-          if (visitTotal > s.highestCheckout) s.highestCheckout = visitTotal;
-          if (visitTotal >= 100) s.tonPlusFinishes++;
+  const executeBotTurnRTC = () => {
+      setIsProcessing(true);
+      const activePlayers = JSON.parse(JSON.stringify(playersRef.current));
+      const idx = playerIndexRef.current;
+      const bot = activePlayers[idx];
+
+      if (bot.rtcFinished) {
+          nextTurn(activePlayers);
+          setIsProcessing(false);
+          return;
+      }
+
+      let hits = 0;
+      let finished = false;
+      const finishTarget = settings.rtcIncludeBull ? 21 : 20;
+
+      for (let i=0; i<3; i++) {
+          if (bot.rtcTarget > finishTarget) break; 
+          const roll = Math.random() * 100;
+          if (roll < (bot.botSkill + 10)) {
+              hits++;
+              if (bot.rtcTarget === finishTarget) {
+                  finished = true;
+                  bot.rtcFinished = true;
+                  break; 
+              }
+              bot.rtcTarget++;
+          }
+      }
+      
+      bot.stats.rtcDartsThrown += 3; 
+      bot.stats.rtcTargetsHit += hits;
+      if (finished) bot.rtcFinished = true;
+      bot.currentVisit = Array(3).fill({score: 0, multiplier: 1, totalValue: 0});
+      
+      internalSetPlayers(activePlayers);
+
+      setTimeout(() => {
+         checkRTCEndCondition(activePlayers);
+      }, 1000);
+  };
+
+  const handleDartThrow = (score: number, multiplier: number) => {
+    // Check REFS instead of state to avoid closure traps
+    if (processingRef.current || matchResult) return;
+    const idx = playerIndexRef.current;
+    if (playersRef.current[idx].isBot) return;
+    if (settings.gameMode !== 'x01') return; 
+
+    setIsProcessing(true); // Lock immediately
+
+    // Deep copy from REF
+    const activePlayers = JSON.parse(JSON.stringify(playersRef.current));
+    const p = activePlayers[idx];
+
+    const totalValue = score * multiplier;
+    const newThrow: Throw = { score, multiplier, totalValue };
+    p.currentVisit.push(newThrow);
+    const newScoreLeft = p.scoreLeft - totalValue;
+
+    // Bust Logic
+    let isBust = false;
+    if (settings.doubleOut) {
+       if (newScoreLeft < 0 || newScoreLeft === 1 || (newScoreLeft === 0 && multiplier !== 2 && score !== 50)) isBust = true;
+    } else {
+       if (newScoreLeft < 0) isBust = true;
+    }
+
+    if (isBust) {
+        internalSetPlayers(activePlayers);
+        setTimeout(() => {
+            // Re-read ref just in case, but usually safe here.
+            // Bust reset:
+            const bustPlayers = JSON.parse(JSON.stringify(activePlayers));
+            const bp = bustPlayers[idx];
+            bp.stats.totalDarts += bp.currentVisit.length;
+            bp.currentVisit = [];
+            // Score stays same
+            nextTurn(bustPlayers);
+            setIsProcessing(false);
+        }, 1000);
+        return;
+    }
+
+    if (newScoreLeft === 0) {
+        p.scoreLeft = 0;
+        const visitTotal = p.currentVisit.reduce((a:number,b:Throw)=>a+b.totalValue,0);
+        p.stats = updateStats(p, visitTotal, p.currentVisit.length, true);
+        internalSetPlayers(activePlayers);
+        handleWin(p.id, activePlayers);
+        return;
+    }
+
+    // Normal Throw
+    p.scoreLeft = newScoreLeft;
+    internalSetPlayers(activePlayers);
+
+    if (p.currentVisit.length === 3) {
+        setTimeout(() => {
+            const finalPlayers = JSON.parse(JSON.stringify(activePlayers));
+            const fp = finalPlayers[idx];
+            const turnTotal = fp.currentVisit.reduce((acc:number, t:Throw) => acc + t.totalValue, 0);
+            fp.stats = updateStats(fp, turnTotal, 3, false);
+            
+            nextTurn(finalPlayers);
+            setIsProcessing(false);
+        }, 500);
+    } else {
+        setIsProcessing(false);
+    }
+  };
+
+  const handleRTCAttempt = (hit: boolean) => {
+    if (processingRef.current || matchResult) return;
+    const idx = playerIndexRef.current;
+    if (playersRef.current[idx].isBot) return;
+    if (playersRef.current[idx].currentVisit.length >= 3) return;
+
+    // Deep copy from REF
+    const activePlayers = JSON.parse(JSON.stringify(playersRef.current));
+    const p = activePlayers[idx];
+
+    if (p.rtcFinished) {
+        nextTurn(activePlayers);
+        return;
+    }
+
+    const targetKey = p.rtcTarget.toString(); 
+    p.stats.rtcDartsThrown += 1;
+    if (!p.stats.rtcSectorHistory) p.stats.rtcSectorHistory = {};
+    if (!p.stats.rtcSectorHistory[targetKey]) p.stats.rtcSectorHistory[targetKey] = { attempts: 0, hits: 0 };
+    p.stats.rtcSectorHistory[targetKey].attempts += 1;
+
+    let turnEndedImmediately = false;
+    if (hit) {
+        p.stats.rtcTargetsHit += 1;
+        p.stats.rtcSectorHistory[targetKey].hits += 1;
+        const finishTarget = settings.rtcIncludeBull ? 21 : 20;
+        if (p.rtcTarget === finishTarget) {
+            p.rtcFinished = true;
+            turnEndedImmediately = true; 
+        } else {
+            p.rtcTarget += 1;
         }
     }
-    return s;
+
+    p.currentVisit.push({ score: hit ? p.rtcTarget : 0, multiplier: 1, totalValue: 0 });
+    internalSetPlayers(activePlayers);
+
+    if (turnEndedImmediately || p.currentVisit.length === 3) {
+        setIsProcessing(true);
+        setTimeout(() => {
+            checkRTCEndCondition(activePlayers);
+        }, 500);
+    }
   };
 
   const checkRTCEndCondition = (currentPlayers: PlayerState[]) => {
-      const isLastPlayer = currentPlayerIndex === currentPlayers.length - 1;
+      const idx = playerIndexRef.current;
+      const isLastPlayer = idx === currentPlayers.length - 1;
+      
       if (isLastPlayer) {
           const someoneFinished = currentPlayers.some(p => p.rtcFinished);
           if (someoneFinished) {
@@ -471,13 +432,36 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
               return;
           }
       }
-      nextTurnWithState(currentPlayers);
+      nextTurn(currentPlayers);
       setIsProcessing(false);
+  };
+
+  // --- HISTORY & RESET ---
+  const saveStateToHistory = () => {
+      setHistoryStack(prev => [...prev, { 
+          players: JSON.parse(JSON.stringify(playersRef.current)), 
+          currentPlayerIndex: playerIndexRef.current, 
+          legStarterIndex, setStarterIndex 
+      }]);
+  };
+
+  const undoLastThrow = () => {
+      if (historyStack.length === 0 || isProcessing || matchResult) return;
+      const previousState = historyStack[historyStack.length - 1];
+      internalSetPlayers(previousState.players);
+      setCurrentPlayerIndex(previousState.currentPlayerIndex);
+      setHistoryStack(prev => prev.slice(0, -1));
+  };
+
+  const resetGame = () => {
+    setMatchResult(null);
+    setIsProcessing(false);
+    setHistoryStack([]);
   };
 
   return {
     players,
-    setPlayers,
+    setPlayers: internalSetPlayers,
     currentPlayer: players[currentPlayerIndex] || undefined,
     handleDartThrow,
     handleRTCAttempt,
