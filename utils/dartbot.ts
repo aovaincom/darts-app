@@ -1,102 +1,121 @@
 // utils/dartbot.ts
 import { getCheckoutGuide } from "./checkouts";
 
-type ThrowResult = {
+type BotThrow = {
   score: number;
   multiplier: number;
 };
 
-// Apufunktio: Palauttaa satunnaisen luvun väliltä min-max
+// Apufunktio: Arvo luku väliltä min-max
 const randomInt = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 
-// Botin "aivot" - Päättää heiton tuloksen
-export const calculateBotThrow = (
-  currentScore: number, 
-  skillLevel: number, // 1-100
-  gameMode: 'x01' | 'rtc',
-  rtcTarget: number = 1
-): ThrowResult => {
-  
-  // --- ROUND THE CLOCK LOGIIKKA ---
-  if (gameMode === 'rtc') {
-    // Lasketaan osumatodennäköisyys skillLevelin perusteella
-    // Esim. Skill 1 = 5% osuma, Skill 50 = 30% osuma, Skill 100 = 80% osuma
-    // Tämä on yksinkertaistettu malli.
-    const hitChance = skillLevel * 0.8 + 5; 
-    const random = Math.random() * 100;
+// Apufunktio: Määritä mihin botti tähtää
+const getTarget = (scoreLeft: number, dartIndex: number): string => {
+  // 1. Jos checkout on mahdollinen, käytä checkout guidea
+  const guide = getCheckoutGuide(scoreLeft);
+  if (guide) {
+    const parts = guide.split(" ");
+    // Jos opas sanoo "T20 T20 D20", ja heitämme ekaa tikkaa -> tähtää T20.
+    if (parts[dartIndex]) return parts[dartIndex];
+    // Jos opas on lyhyempi (esim "D20" ja on 2. tikka), ota viimeinen osa
+    return parts[parts.length - 1]; 
+  }
 
-    if (random < hitChance) {
-      // Osuma!
-      // RTC:ssä ei ole väliä kertoimella, mutta palautetaan 1 (single)
-      return { score: rtcTarget === 21 ? 25 : rtcTarget, multiplier: 1 };
-    } else {
-      // Huti. Arvotaan joku muu numero (ei maali)
-      let miss = randomInt(1, 20);
-      while (miss === rtcTarget) {
-        miss = randomInt(1, 20);
-      }
-      return { score: miss, multiplier: 1 };
+  // 2. Jos ei checkoutia, tähtää T20 (tai T19 jos blokattu, mutta yksinkertaistetaan T20)
+  return "T20";
+};
+
+// Apufunktio: Laske osuma perustuen taitotasoon (1-100)
+// targetString esim: "T20", "D20", "20", "BULL", "25"
+const calculateHit = (targetString: string, skill: number): BotThrow => {
+  const isTriple = targetString.startsWith("T");
+  const isDouble = targetString.startsWith("D");
+  const isBull = targetString === "BULL" || targetString === "25";
+  
+  // Parsitaan numero (esim "T20" -> 20)
+  let targetNum = 20;
+  if (isBull) targetNum = 25;
+  else if (isTriple || isDouble) targetNum = parseInt(targetString.substring(1));
+  else targetNum = parseInt(targetString);
+
+  // --- MATEMATIIKKA ---
+  // Arvotaan onnistuminen (0-100). Jos alle skill, onnistuu täydellisesti.
+  const roll = Math.random() * 100;
+  
+  // Täydellinen osuma
+  if (roll < skill) {
+    if (isBull && targetString === "BULL") return { score: 50, multiplier: 1 }; // Inner Bull
+    if (isTriple) return { score: targetNum, multiplier: 3 };
+    if (isDouble) return { score: targetNum, multiplier: 2 };
+    return { score: targetNum, multiplier: 1 };
+  }
+
+  // --- VIRHEET (Miss) ---
+  // Jos taito ei riittänyt, mihin osuu?
+  
+  // 1. Triplaa yritettiin -> Osuu useimmiten singleen
+  if (isTriple) {
+    // 80% todennäköisyys osua isoon singleen, 20% naapuriin (esim 1 tai 5)
+    if (Math.random() < 0.8) return { score: targetNum, multiplier: 1 };
+    return { score: Math.random() > 0.5 ? 1 : 5, multiplier: 1 }; // Yksinkertaistettu naapuri
+  }
+
+  // 2. Tuplaa yritettiin (Lopetus) -> Vaarallista! Voi mennä ohi taulun tai sisälle singleen.
+  if (isDouble) {
+    const missRoll = Math.random();
+    if (missRoll < 0.4) return { score: targetNum, multiplier: 1 }; // Osuu singleen (ei poikki)
+    if (missRoll < 0.7) return { score: 0, multiplier: 0 }; // Ohi taulun (ei poikki, mutta ei bust)
+    // Naapuri tuplat (esim D20 -> D5 tai D1) - harvinaista
+    return { score: Math.random() > 0.5 ? 1 : 5, multiplier: 2 }; 
+  }
+
+  // 3. Bullia yritettiin
+  if (isBull) {
+    if (Math.random() < 0.5) return { score: 25, multiplier: 1 }; // Outer bull
+    return { score: randomInt(1, 20), multiplier: 1 }; // Karkaa numerokehälle
+  }
+
+  // 4. Singleä yritettiin -> Osuu johonkin lähelle
+  return { score: targetNum, multiplier: 1 };
+};
+
+// PÄÄFUNKTIO: Simuloi koko vuoro (1-3 tikkaa)
+export const getBotTurn = (currentScore: number, skillLevel: number): BotThrow[] => {
+  const throws: BotThrow[] = [];
+  let scoreLeft = currentScore;
+
+  for (let i = 0; i < 3; i++) {
+    // 1. Päätä kohde
+    const target = getTarget(scoreLeft, i);
+    
+    // 2. Heitä
+    const result = calculateHit(target, skillLevel);
+    
+    // 3. Lisää heitto listaan
+    throws.push(result);
+    
+    // 4. Laske uusi tilanne
+    const totalVal = result.score * result.multiplier;
+    const nextScore = scoreLeft - totalVal;
+
+    // 5. Tarkista lopetus tai bust
+    if (nextScore === 0 && result.multiplier === 2) {
+      // Game shot! Lopeta heittäminen tähän.
+      break; 
     }
-  }
-
-  // --- X01 LOGIIKKA ---
-  
-  // 1. Mihin tähdätään?
-  let targetScore = 20;
-  let targetMultiplier = 3; // Oletus: T20
-
-  // Jos ollaan lopetusalueella, katsotaan checkout guidesta
-  if (currentScore <= 170) {
-    const guide = getCheckoutGuide(currentScore);
-    if (guide) {
-      // Yritetään parsia ensimmäinen heitto guidesta (esim "T20 T20 D20")
-      const firstTarget = guide.split(" ")[0]; // "T20"
-      
-      if (firstTarget === "BULL") { targetScore = 25; targetMultiplier = 2; } // Bullseye (50)
-      else if (firstTarget === "25") { targetScore = 25; targetMultiplier = 1; }
-      else {
-        // Parsitaan "T20", "D10", "20"
-        const type = firstTarget.charAt(0);
-        if (type === 'T') {
-           targetMultiplier = 3;
-           targetScore = parseInt(firstTarget.substring(1));
-        } else if (type === 'D') {
-           targetMultiplier = 2;
-           targetScore = parseInt(firstTarget.substring(1));
-        } else {
-           targetMultiplier = 1;
-           targetScore = parseInt(firstTarget);
-        }
-      }
+    if (nextScore === 0 && result.score === 50) {
+       // Bullseye finish!
+       break;
     }
+
+    if (nextScore < 2 && nextScore !== 0) {
+      // Bust (jäi 1 tai meni alle 0). Heittovuoro päättyy, mutta hook hoitaa pistelaskun peruutuksen.
+      // Palautetaan heitot tähän asti.
+      break;
+    }
+    
+    scoreLeft = nextScore;
   }
 
-  // 2. Osumatarkkuus (Simulaatio)
-  // Mitä suurempi skill, sitä pienempi hajonta (variance)
-  // Skill 100 = osuu lähes aina. Skill 1 = osuu naapureihin.
-  
-  const accuracy = Math.random() * 100;
-  
-  // Osuu täydellisesti kohteeseen?
-  if (accuracy < skillLevel) {
-      return { score: targetScore === 25 && targetMultiplier === 2 ? 50 : targetScore, multiplier: targetMultiplier };
-  }
-
-  // Jos ei osunut, simuloidaan virhettä
-  // Yksinkertaistus: Botti osuu "singleen" tai viereiseen numeroon
-  
-  // Jos tähdättiin triplaan, mutta epäonnistuttiin -> usein osuu singleen (kerroin 1)
-  if (targetMultiplier === 3 && Math.random() > 0.5) {
-      return { score: targetScore, multiplier: 1 };
-  }
-  
-  // Jos tähdättiin tuplaan (lopetus), mutta epäonnistuttiin -> usein osuu singleen tai ohi
-  if (targetMultiplier === 2 && Math.random() > 0.5) {
-      // Joskus menee yli tai viereen, palautetaan single
-      return { score: targetScore, multiplier: 1 };
-  }
-
-  // Täysi huti (random numero) - simuloidaan "huonoa heittoa"
-  // Oikeasti pitäisi katsoa naapurit (esim 20 vieressä 1 ja 5), mutta random riittää tähän hätään
-  return { score: randomInt(1, 20), multiplier: 1 };
+  return throws;
 };

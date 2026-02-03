@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { SavedProfile } from './useProfiles';
-import { calculateBotThrow } from '../utils/dartbot'; // Importataan botin aivot
+import { getBotTurn } from '../utils/dartbot';
 
 type Throw = {
   score: number;
@@ -9,7 +9,6 @@ type Throw = {
 };
 
 export type PlayerStats = {
-  // X01 Stats
   average: number;
   totalScore: number;
   totalDarts: number;
@@ -21,7 +20,6 @@ export type PlayerStats = {
   scores140plus: number;
   scores180: number;
   tonPlusFinishes: number;
-  // RTC Stats
   rtcTargetsHit: number; 
   rtcDartsThrown: number;
   rtcSectorHistory: Record<string, { attempts: number; hits: number }>; 
@@ -31,8 +29,8 @@ export type PlayerState = {
   id: number;
   profileId?: string;
   name: string;
-  isBot: boolean; // UUSI: Onko tämä pelaaja botti?
-  botSkill: number; // UUSI: Botin taitotaso (1-100)
+  isBot: boolean;
+  botSkill: number;
   scoreLeft: number; 
   rtcTarget: number; 
   rtcFinished: boolean;
@@ -70,7 +68,7 @@ type GameHistoryState = {
     setStarterIndex: number;
 };
 
-export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProfile[], botConfig: { count: number, skill: number } | null) => {
+export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProfile[], botConfig?: {count: number, skill: number}) => {
   const [players, setPlayers] = useState<PlayerState[]>([]);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   
@@ -81,153 +79,56 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
   const [matchResult, setMatchResult] = useState<MatchResult>(null);
   const [historyStack, setHistoryStack] = useState<GameHistoryState[]>([]);
 
-  // Tunniste muutoksille (profiilit + botit)
-  const profilesHash = selectedProfiles.map(p => p.id).join(',') + `-${botConfig?.count}-${botConfig?.skill}`;
-
-  // Ääni-ref botille
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
+  // 1. ALUSTUS
   useEffect(() => {
-    // Alustetaan ääni
-    if (typeof window !== 'undefined') {
-        audioRef.current = new Audio('/sounds/dart-throw.mp3');
-        audioRef.current.volume = 0.5;
-    }
-  }, []);
+    const createPlayer = (id: number, name: string, isBot: boolean, skill: number, profileId?: string): PlayerState => ({
+      id, profileId, name, isBot, botSkill: skill,
+      scoreLeft: settings.startScore,
+      rtcTarget: 1, rtcFinished: false,
+      setsWon: 0, legsWon: 0,
+      history: [], currentVisit: [],
+      stats: { average: 0, totalScore: 0, totalDarts: 0, highestCheckout: 0, scores60plus: 0, scores80plus: 0, scores100plus: 0, scores120plus: 0, scores140plus: 0, scores180: 0, tonPlusFinishes: 0, rtcTargetsHit: 0, rtcDartsThrown: 0, rtcSectorHistory: {} }
+    });
 
-  useEffect(() => {
-    // Luodaan ihmispelaajat
-    const humanPlayers = selectedProfiles.map((profile, index) => createPlayer(index, profile.name, profile.id, false, 0));
+    const humanPlayers = selectedProfiles.map((profile, index) => createPlayer(index, profile.name, false, 0, profile.id));
     
-    // Luodaan botit
     const bots = [];
     if (botConfig && botConfig.count > 0) {
         for (let i = 0; i < botConfig.count; i++) {
-            // Jatka ID-numerointia ihmisten jälkeen
-            bots.push(createPlayer(humanPlayers.length + i, `DartBot ${i + 1}`, undefined, true, botConfig.skill));
+            bots.push(createPlayer(humanPlayers.length + i, `Dartbot ${i+1}`, true, botConfig.skill));
         }
     }
 
-    const allPlayers = [...humanPlayers, ...bots];
-    
-    // Jos ei pelaajia ollenkaan (alustus), ei tehdä mitään
-    if (allPlayers.length === 0) return;
-
-    setPlayers(allPlayers);
+    setPlayers([...humanPlayers, ...bots]);
     setCurrentPlayerIndex(0); 
     setLegStarterIndex(0);
     setSetStarterIndex(0);
     setMatchResult(null);
     setIsProcessing(false);
     setHistoryStack([]);
-  }, [profilesHash, settings.startScore, settings.gameMode, settings.rtcIncludeBull]); // Poistettu riippuvuus botConfigista suoraan loopin estämiseksi
+  }, [selectedProfiles, settings.startScore, settings.gameMode, settings.rtcIncludeBull, botConfig]);
 
-  // Apufunktio pelaajan luontiin
-  const createPlayer = (id: number, name: string, profileId: string | undefined, isBot: boolean, botSkill: number): PlayerState => ({
-      id,
-      profileId,
-      name,
-      isBot,
-      botSkill,
-      scoreLeft: settings.startScore,
-      rtcTarget: 1, 
-      rtcFinished: false,
-      setsWon: 0,
-      legsWon: 0,
-      history: [],
-      currentVisit: [],
-      stats: {
-        average: 0,
-        totalScore: 0,
-        totalDarts: 0,
-        highestCheckout: 0,
-        scores60plus: 0,
-        scores80plus: 0,
-        scores100plus: 0,
-        scores120plus: 0,
-        scores140plus: 0,
-        scores180: 0,
-        tonPlusFinishes: 0,
-        rtcTargetsHit: 0,
-        rtcDartsThrown: 0,
-        rtcSectorHistory: {}
-      }
-  });
-
-  // --- BOTIN VUORO LOGIIKKA ---
+  // 2. DARTBOT TRIGGER
   useEffect(() => {
-      if (players.length === 0 || matchResult) return;
+    if (players.length === 0 || matchResult) return;
 
-      const currentPlayer = players[currentPlayerIndex];
-
-      // Jos on botin vuoro, eikä peli ole prosessoinnissa
-      if (currentPlayer?.isBot && !isProcessing) {
-          
-          // Viive ennen heittoa (näyttää luonnollisemmalta)
-          const delay = currentPlayer.currentVisit.length === 0 ? 1000 : 800; // Eka tikka hitaampi
-
-          const timer = setTimeout(() => {
-              // Lasketaan heitto
-              const result = calculateBotThrow(
-                  currentPlayer.scoreLeft, 
-                  currentPlayer.botSkill, 
-                  settings.gameMode, 
-                  currentPlayer.rtcTarget
-              );
-
-              // Soita ääni
-              if (audioRef.current) {
-                  audioRef.current.currentTime = 0;
-                  audioRef.current.play().catch(() => {});
-              }
-
-              // Kutsutaan oikeaa käsittelijää pelimuodon mukaan
-              if (settings.gameMode === 'x01') {
-                  handleDartThrow(result.score, result.multiplier);
-              } else {
-                  // RTC: Tarkistetaan osuiko tavoitteeseen
-                  // CalculateBotThrow palauttaa 25/50 Bullille, käsitellään se
-                  let hit = false;
-                  const target = currentPlayer.rtcTarget;
-                  
-                  // Normaalit numerot
-                  if (target <= 20 && result.score === target) hit = true;
-                  // Bull (21)
-                  if (target === 21 && (result.score === 25 || result.score === 50)) hit = true;
-
-                  handleRTCAttempt(hit);
-              }
-
-          }, delay);
-
-          return () => clearTimeout(timer);
-      }
+    const currentPlayer = players[currentPlayerIndex];
+    if (currentPlayer && currentPlayer.isBot && !isProcessing) {
+        const delay = setTimeout(() => {
+            if (settings.gameMode === 'x01') executeBotTurnX01(currentPlayer);
+            else executeBotTurnRTC(currentPlayer);
+        }, 1200);
+        return () => clearTimeout(delay);
+    }
   }, [currentPlayerIndex, players, isProcessing, matchResult]);
 
-
-  const resetGame = () => {
-    setMatchResult(null);
-    setIsProcessing(false);
-    setHistoryStack([]);
-  };
-
+  // --- UNDO / HISTORY ---
   const saveStateToHistory = () => {
-      setHistoryStack(prev => [
-          ...prev, 
-          {
-              players: JSON.parse(JSON.stringify(players)), 
-              currentPlayerIndex,
-              legStarterIndex,
-              setStarterIndex
-          }
-      ]);
+      setHistoryStack(prev => [...prev, { players: JSON.parse(JSON.stringify(players)), currentPlayerIndex, legStarterIndex, setStarterIndex }]);
   };
 
   const undoLastThrow = () => {
       if (historyStack.length === 0 || isProcessing || matchResult) return;
-      // Jos botti on heittämässä, ei voi perua juuri sillä hetkellä
-      if (players[currentPlayerIndex].isBot) return; 
-
       const previousState = historyStack[historyStack.length - 1];
       setPlayers(previousState.players);
       setCurrentPlayerIndex(previousState.currentPlayerIndex);
@@ -236,33 +137,201 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
       setHistoryStack(prev => prev.slice(0, -1));
   };
 
-  const updateStats = (player: PlayerState, visitTotal: number, dartsThrown: number, isCheckout: boolean) => {
-    const s = { ...player.stats };
-    if (settings.gameMode === 'x01') {
-        s.totalScore += visitTotal;
-        s.totalDarts += dartsThrown;
-        s.average = parseFloat(((s.totalScore / s.totalDarts) * 3).toFixed(2));
-        if (visitTotal === 180) s.scores180++;
-        else if (visitTotal >= 140) s.scores140plus++;
-        else if (visitTotal >= 120) s.scores120plus++;
-        else if (visitTotal >= 100) s.scores100plus++;
-        else if (visitTotal >= 80) s.scores80plus++;
-        else if (visitTotal >= 60) s.scores60plus++;
-        if (isCheckout) {
-          if (visitTotal > s.highestCheckout) s.highestCheckout = visitTotal;
-          if (visitTotal >= 100) s.tonPlusFinishes++;
-        }
-    }
-    return s;
+  // --- RESET GAME ---
+  const resetGame = () => {
+    setMatchResult(null);
+    setIsProcessing(false);
+    setHistoryStack([]);
+    // State resetoidaan useEffectin kautta kun valikkoon palataan
   };
 
-  // --- RTC HANDLER ---
+  // --- BOT LOGIC X01 ---
+  const executeBotTurnX01 = (bot: PlayerState) => {
+      const throws = getBotTurn(bot.scoreLeft, bot.botSkill);
+      let tempScore = bot.scoreLeft;
+      let bust = false;
+      const visitThrows: Throw[] = [];
+
+      for (const t of throws) {
+          const total = t.score * t.multiplier;
+          const nextScore = tempScore - total;
+          
+          let isThrowBust = false;
+          if (settings.doubleOut) {
+             if (nextScore < 0 || nextScore === 1 || (nextScore === 0 && t.multiplier !== 2 && t.score !== 50)) isThrowBust = true;
+          } else {
+             if (nextScore < 0) isThrowBust = true;
+          }
+
+          if (isThrowBust) {
+              bust = true;
+              visitThrows.push({ ...t, totalValue: total });
+              break; 
+          }
+          
+          tempScore = nextScore;
+          visitThrows.push({ ...t, totalValue: total });
+          if (nextScore === 0) break; 
+      }
+
+      processBotVisitResult(visitThrows, bust);
+  };
+
+  const processBotVisitResult = (visit: Throw[], isBust: boolean) => {
+      saveStateToHistory();
+      setIsProcessing(true);
+
+      const updatedPlayers = [...players];
+      const p = updatedPlayers[currentPlayerIndex];
+      const visitTotal = visit.reduce((a, b) => a + b.totalValue, 0);
+      
+      p.stats = updateStats(p, isBust ? 0 : visitTotal, visit.length, (!isBust && p.scoreLeft - visitTotal === 0));
+
+      if (!isBust) {
+          p.scoreLeft -= visitTotal;
+      }
+
+      p.currentVisit = visit;
+      setPlayers(updatedPlayers);
+
+      if (p.scoreLeft === 0 && !isBust) {
+          handleWin(p, updatedPlayers);
+          return;
+      }
+
+      setTimeout(() => {
+          const finalPlayers = [...updatedPlayers];
+          finalPlayers[currentPlayerIndex].currentVisit = [];
+          setPlayers(finalPlayers);
+          nextTurn();
+          setIsProcessing(false);
+      }, 1500);
+  };
+
+  // --- BOT LOGIC RTC ---
+  const executeBotTurnRTC = (bot: PlayerState) => {
+      if (bot.rtcFinished) {
+          nextTurn();
+          return;
+      }
+
+      let hits = 0;
+      let finished = false;
+      const finishTarget = settings.rtcIncludeBull ? 21 : 20;
+
+      for (let i=0; i<3; i++) {
+          if (bot.rtcTarget > finishTarget) break; 
+          
+          const roll = Math.random() * 100;
+          const hitChance = bot.botSkill + 10; 
+          
+          if (roll < hitChance) {
+              hits++;
+              if (bot.rtcTarget === finishTarget) {
+                  finished = true;
+                  bot.rtcFinished = true;
+                  break; 
+              }
+              bot.rtcTarget++;
+          }
+      }
+      
+      const updatedPlayers = [...players];
+      const p = updatedPlayers[currentPlayerIndex];
+      p.stats.rtcDartsThrown += 3; 
+      p.stats.rtcTargetsHit += hits;
+      if (finished) p.rtcFinished = true;
+      p.currentVisit = Array(3).fill({score: 0, multiplier: 1, totalValue: 0});
+      
+      setPlayers(updatedPlayers);
+      setIsProcessing(true);
+
+      setTimeout(() => {
+         const finalPlayers = [...updatedPlayers];
+         finalPlayers[currentPlayerIndex].currentVisit = [];
+         setPlayers(finalPlayers);
+         checkRTCEndCondition(finalPlayers);
+      }, 1000);
+  };
+
+  // --- HUMAN INPUTS ---
+  const handleDartThrow = (score: number, multiplier: number) => {
+    const currentPlayer = players[currentPlayerIndex];
+    if (players.length === 0 || isProcessing || matchResult || players[currentPlayerIndex].isBot) return;
+    if (settings.gameMode !== 'x01') return; 
+
+    saveStateToHistory();
+    setIsProcessing(true);
+
+    const totalValue = score * multiplier;
+    const newThrow: Throw = { score, multiplier, totalValue };
+    const updatedVisit = [...currentPlayer.currentVisit, newThrow];
+    const newScoreLeft = currentPlayer.scoreLeft - totalValue;
+
+    let isBust = false;
+    if (settings.doubleOut) {
+       if (newScoreLeft < 0 || newScoreLeft === 1 || (newScoreLeft === 0 && multiplier !== 2 && score !== 50)) isBust = true;
+    } else {
+       if (newScoreLeft < 0) isBust = true;
+    }
+
+    if (isBust) {
+        const updatedPlayers = [...players];
+        updatedPlayers[currentPlayerIndex].currentVisit = updatedVisit;
+        setPlayers(updatedPlayers);
+
+        setTimeout(() => {
+            const finalPlayers = [...players];
+            finalPlayers[currentPlayerIndex].currentVisit = [];
+            const p = finalPlayers[currentPlayerIndex];
+            p.stats.totalDarts += updatedVisit.length; 
+            
+            setPlayers(finalPlayers);
+            nextTurn(); 
+            setIsProcessing(false);
+        }, 1000);
+        return;
+    }
+
+    if (newScoreLeft === 0) {
+        const updatedPlayers = [...players];
+        const p = updatedPlayers[currentPlayerIndex];
+        
+        p.currentVisit = updatedVisit;
+        p.scoreLeft = 0;
+        p.stats = updateStats(p, updatedVisit.reduce((a,b)=>a+b.totalValue,0), updatedVisit.length, true);
+
+        setPlayers(updatedPlayers);
+        handleWin(p, updatedPlayers);
+        return;
+    }
+
+    const updatedPlayers = [...players];
+    updatedPlayers[currentPlayerIndex].currentVisit = updatedVisit;
+    updatedPlayers[currentPlayerIndex].scoreLeft = newScoreLeft;
+    setPlayers(updatedPlayers);
+
+    if (updatedVisit.length === 3) {
+      setTimeout(() => {
+        const finalPlayers = [...players];
+        const p = finalPlayers[currentPlayerIndex];
+        const turnTotal = updatedVisit.reduce((acc, t) => acc + t.totalValue, 0);
+        
+        p.stats = updateStats(p, turnTotal, 3, false);
+        p.currentVisit = [];
+        setPlayers(finalPlayers);
+        
+        nextTurn();
+        setIsProcessing(false);
+      }, 500);
+    } else {
+        setIsProcessing(false);
+    }
+  };
+
   const handleRTCAttempt = (hit: boolean) => {
     const currentPlayer = players[currentPlayerIndex];
-    if (players.length === 0 || matchResult) return;
-    
-    // Botit eivät rämppää, mutta ihmiset voivat. Estetään ylimääräiset.
-    if (!currentPlayer.isBot && (isProcessing || currentPlayer.currentVisit.length >= 3)) return;
+    if (players.length === 0 || matchResult || isProcessing || currentPlayer.isBot || currentPlayer.currentVisit.length >= 3) return;
     
     saveStateToHistory();
 
@@ -282,11 +351,9 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
     p.stats.rtcSectorHistory[targetKey].attempts += 1;
 
     let turnEndedImmediately = false;
-
     if (hit) {
         p.stats.rtcTargetsHit += 1;
         p.stats.rtcSectorHistory[targetKey].hits += 1;
-        
         const finishTarget = settings.rtcIncludeBull ? 21 : 20;
         if (target === finishTarget) {
             p.rtcFinished = true;
@@ -312,6 +379,72 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
     }
   };
 
+  // --- HELPERS ---
+  const handleWin = (winner: PlayerState, currentPlayers: PlayerState[]) => {
+      winner.legsWon++;
+      let matchWon = false;
+      let setFinished = false;
+
+      if (settings.matchMode === 'sets') {
+        if (winner.legsWon >= settings.legsPerSet) {
+            setFinished = true;
+            winner.setsWon++;
+            currentPlayers.forEach(pl => pl.legsWon = 0);
+            if (winner.setsWon >= settings.targetToWin) matchWon = true;
+        }
+      } else {
+          if (winner.legsWon >= settings.targetToWin) matchWon = true;
+      }
+      
+      if (matchWon) {
+          setMatchResult({ winner: winner, players: currentPlayers, mode: 'x01' });
+          setIsProcessing(false);
+          return;
+      }
+      
+      setTimeout(() => {
+          const nextStarter = setFinished 
+            ? (setStarterIndex + 1) % players.length
+            : (legStarterIndex + 1) % players.length;
+            
+          if (setFinished) { setSetStarterIndex(nextStarter); setLegStarterIndex(nextStarter); }
+          else { setLegStarterIndex(nextStarter); }
+
+          currentPlayers.forEach(pl => { pl.scoreLeft = settings.startScore; pl.currentVisit = []; });
+          setPlayers(currentPlayers);
+          setCurrentPlayerIndex(nextStarter);
+          setIsProcessing(false);
+      }, 2000);
+  };
+
+  const updateStats = (player: PlayerState, visitTotal: number, dartsThrown: number, isCheckout: boolean) => {
+    const s = { ...player.stats };
+    if (settings.gameMode === 'x01') {
+        s.totalScore += visitTotal;
+        s.totalDarts += dartsThrown;
+        s.average = parseFloat(((s.totalScore / s.totalDarts) * 3).toFixed(2));
+        if (visitTotal === 180) s.scores180++;
+        else if (visitTotal >= 140) s.scores140plus++;
+        else if (visitTotal >= 120) s.scores120plus++;
+        else if (visitTotal >= 100) s.scores100plus++;
+        else if (visitTotal >= 80) s.scores80plus++;
+        else if (visitTotal >= 60) s.scores60plus++;
+        if (isCheckout) {
+          if (visitTotal > s.highestCheckout) s.highestCheckout = visitTotal;
+          if (visitTotal >= 100) s.tonPlusFinishes++;
+        }
+    }
+    return s;
+  };
+
+  const nextTurn = () => {
+    if (players.length === 0) return;
+    const updatedPlayers = [...players];
+    updatedPlayers[currentPlayerIndex].currentVisit = [];
+    setPlayers(updatedPlayers);
+    setCurrentPlayerIndex((prev) => (prev + 1) % players.length);
+  };
+
   const checkRTCEndCondition = (currentPlayers: PlayerState[]) => {
       const isLastPlayer = currentPlayerIndex === currentPlayers.length - 1;
       if (isLastPlayer) {
@@ -328,135 +461,6 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
       setIsProcessing(false);
   };
 
-  // --- X01 HANDLER ---
-  const handleDartThrow = (score: number, multiplier: number) => {
-    const currentPlayer = players[currentPlayerIndex];
-    if (players.length === 0 || matchResult) return;
-    if (settings.gameMode !== 'x01') return; 
-    
-    // Botit hallitsevat itse tahtiaan, ihmisille rämppäyksen esto
-    if (!currentPlayer.isBot && (isProcessing || currentPlayer.currentVisit.length >= 3)) return;
-
-    saveStateToHistory();
-    // Jos ihmispelaaja, lukitaan UI heti. Botille ei tarvitse, koska se käyttää ajastimia.
-    if (!currentPlayer.isBot) setIsProcessing(true);
-
-    const totalValue = score * multiplier;
-    const newThrow: Throw = { score, multiplier, totalValue };
-    const updatedVisit = [...currentPlayer.currentVisit, newThrow];
-
-    const newScoreLeft = currentPlayer.scoreLeft - totalValue;
-
-    let isBust = false;
-    if (settings.doubleOut) {
-       if (newScoreLeft < 0 || newScoreLeft === 1) isBust = true;
-       if (newScoreLeft === 0 && multiplier !== 2 && score !== 50) isBust = true;
-    } else {
-       if (newScoreLeft < 0) isBust = true;
-    }
-
-    if (isBust) {
-      // Bust logic...
-      // Jos on botti, tehdään tämä ilman ylimääräisiä viiveitä, koska botti itse rytmittää
-      setTimeout(() => {
-        nextTurn();
-        setIsProcessing(false);
-      }, 1000);
-      return;
-    }
-
-    // LEG WIN
-    if (newScoreLeft === 0) {
-      const updatedPlayers = [...players];
-      const winner = updatedPlayers[currentPlayerIndex];
-
-      // Lisätään viimeinen tikka historiaan ennen statsien päivitystä
-      // Huom: tässä oikopolku, käytetään visitTotalia joka lasketaan alla
-      const visitTotal = updatedVisit.reduce((acc, t) => acc + t.totalValue, 0);
-
-      winner.stats = updateStats(winner, visitTotal, updatedVisit.length, true);
-      winner.legsWon += 1;
-
-      let matchWon = false;
-      let setFinished = false;
-      
-      if (settings.matchMode === 'sets') {
-        if (winner.legsWon >= settings.legsPerSet) {
-          setFinished = true;
-          winner.setsWon += 1;
-          updatedPlayers.forEach(p => p.legsWon = 0); 
-          if (winner.setsWon >= settings.targetToWin) matchWon = true;
-        }
-      } else {
-        if (winner.legsWon >= settings.targetToWin) matchWon = true;
-      }
-
-      if (matchWon) {
-        setPlayers(updatedPlayers);
-        setMatchResult({ winner: winner, players: updatedPlayers, mode: 'x01' });
-        setIsProcessing(false);
-        return;
-      }
-
-      updatedPlayers.forEach(p => { p.scoreLeft = settings.startScore; p.currentVisit = []; });
-
-      let nextStarter = 0;
-      if (setFinished) {
-         const nextSetStarter = (setStarterIndex + 1) % players.length;
-         setSetStarterIndex(nextSetStarter);
-         setLegStarterIndex(nextSetStarter); 
-         nextStarter = nextSetStarter;
-      } else {
-         const nextLegStarter = (legStarterIndex + 1) % players.length;
-         setLegStarterIndex(nextLegStarter);
-         nextStarter = nextLegStarter;
-      }
-
-      setPlayers(updatedPlayers);
-      setCurrentPlayerIndex(nextStarter);
-      setIsProcessing(false);
-      return; 
-    }
-
-    // NORMAL THROW
-    const updatedPlayers = [...players];
-    updatedPlayers[currentPlayerIndex].currentVisit = updatedVisit;
-    updatedPlayers[currentPlayerIndex].scoreLeft = newScoreLeft;
-    setPlayers(updatedPlayers);
-
-    if (updatedVisit.length === 3) {
-      // Botilla on oma rytmi, mutta varmistetaan vuoron vaihto
-      setTimeout(() => {
-        const finalPlayers = [...players];
-        const p = finalPlayers[currentPlayerIndex];
-        const turnTotal = updatedVisit.reduce((acc, t) => acc + t.totalValue, 0);
-        
-        p.stats = updateStats(p, turnTotal, 3, false);
-        p.currentVisit = [];
-        setPlayers(finalPlayers);
-        
-        setCurrentPlayerIndex((prev) => (prev + 1) % players.length);
-        setIsProcessing(false);
-      }, 800);
-    } else {
-        // Jos ihmispelaaja, vapautetaan lukitus. Botin tapauksessa ei tarvitse.
-        if (!currentPlayer.isBot) setIsProcessing(false);
-    }
-  };
-
-  const nextTurn = () => {
-    if (players.length === 0) return;
-    const updatedPlayers = [...players];
-    const p = updatedPlayers[currentPlayerIndex];
-    if (settings.gameMode === 'x01') {
-        const visitScore = p.currentVisit.reduce((acc, t) => acc + t.totalValue, 0);
-        p.scoreLeft += visitScore; 
-    }
-    p.currentVisit = [];
-    setPlayers(updatedPlayers);
-    setCurrentPlayerIndex((prev) => (prev + 1) % players.length);
-  };
-
   return {
     players,
     setPlayers,
@@ -467,7 +471,7 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
     matchResult,
     isProcessing,
     resetGame,
-    undoLastThrow, 
-    canUndo: historyStack.length > 0 && !isProcessing && !(players[currentPlayerIndex]?.isBot)
+    undoLastThrow,
+    canUndo: historyStack.length > 0 && !isProcessing
   };
 };
