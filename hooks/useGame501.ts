@@ -168,7 +168,39 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
           if (nextScore === 0) break; 
       }
 
-      processVisit(visitThrows, bust);
+      processBotVisitResult(visitThrows, bust);
+  };
+
+  const processBotVisitResult = (visit: Throw[], isBust: boolean) => {
+      saveStateToHistory();
+      setIsProcessing(true);
+
+      const updatedPlayers = [...players];
+      const p = updatedPlayers[currentPlayerIndex];
+      const visitTotal = visit.reduce((a, b) => a + b.totalValue, 0);
+      
+      p.stats = updateStats(p, isBust ? 0 : visitTotal, visit.length, (!isBust && p.scoreLeft - visitTotal === 0));
+
+      if (!isBust) {
+          p.scoreLeft -= visitTotal;
+      }
+
+      p.currentVisit = visit;
+      setPlayers(updatedPlayers);
+
+      if (p.scoreLeft === 0 && !isBust) {
+          handleWin(p, updatedPlayers);
+          return;
+      }
+
+      setTimeout(() => {
+          // Tärkeää: Käytetään updatedPlayers, ei players!
+          const finalPlayers = [...updatedPlayers];
+          finalPlayers[currentPlayerIndex].currentVisit = [];
+          setPlayers(finalPlayers);
+          nextTurnWithState(finalPlayers);
+          setIsProcessing(false);
+      }, 1500);
   };
 
   const executeBotTurnRTC = (bot: PlayerState) => {
@@ -197,7 +229,6 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
           }
       }
       
-      // Kopioidaan tila ja välitetään se eteenpäin ilman state-viiveitä
       const updatedPlayers = [...players];
       const p = updatedPlayers[currentPlayerIndex];
       p.stats.rtcDartsThrown += 3; 
@@ -209,7 +240,6 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
       setIsProcessing(true);
 
       setTimeout(() => {
-         // TÄRKEÄ KORJAUS: Käytetään updatedPlayers, ei players
          const finalPlayers = [...updatedPlayers];
          finalPlayers[currentPlayerIndex].currentVisit = [];
          setPlayers(finalPlayers);
@@ -217,7 +247,7 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
       }, 1000);
   };
 
-  // --- IHMISEN TOIMINNOT ---
+  // --- IHMISEN TOIMINNOT (KORJATTU) ---
   const handleDartThrow = (score: number, multiplier: number) => {
     const currentPlayer = players[currentPlayerIndex];
     if (players.length === 0 || isProcessing || matchResult || currentPlayer.isBot) return;
@@ -241,24 +271,25 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
     const updatedPlayers = [...players];
     const p = updatedPlayers[currentPlayerIndex];
 
+    // BUST
     if (isBust) {
         p.currentVisit = updatedVisit;
         setPlayers(updatedPlayers);
 
         setTimeout(() => {
-            // TÄRKEÄ KORJAUS: Käytetään updatedPlayers pohjana
+            // KORJAUS: Käytetään updatedPlayers, koska 'players' on vanhentunut
             const finalPlayers = [...updatedPlayers];
             finalPlayers[currentPlayerIndex].currentVisit = [];
             finalPlayers[currentPlayerIndex].stats.totalDarts += updatedVisit.length; 
             
             setPlayers(finalPlayers);
-            // Välitetään finalPlayers nextTurnille, jotta se tietää uuden tilan
             nextTurnWithState(finalPlayers); 
             setIsProcessing(false);
         }, 1000);
         return;
     }
 
+    // VOITTO
     if (newScoreLeft === 0) {
         p.currentVisit = updatedVisit;
         p.scoreLeft = 0;
@@ -269,20 +300,19 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
         return;
     }
 
-    // Normaali heitto
+    // NORMAALI HEITTO (Peli jatkuu)
     p.currentVisit = updatedVisit;
     p.scoreLeft = newScoreLeft;
     setPlayers(updatedPlayers);
 
+    // 3 TIKKAA TÄYNNÄ?
     if (updatedVisit.length === 3) {
       setTimeout(() => {
-        // TÄRKEÄ KORJAUS: Kutsutaan processVisit, joka käyttää updatedPlayers
-        // Huom: processVisit olettaa saavansa heitot, mutta meillä on jo state päivitetty.
-        // Yksinkertaistetaan: tehdään viimeistely tässä käyttäen updatedPlayers.
+        // KORJAUS: Käytetään updatedPlayers pohjana
         const finalPlayers = [...updatedPlayers];
         const turnTotal = updatedVisit.reduce((acc, t) => acc + t.totalValue, 0);
         
-        // Päivitä statsit finalPlayersiin
+        // Päivitä statsit
         finalPlayers[currentPlayerIndex].stats = updateStats(finalPlayers[currentPlayerIndex], turnTotal, 3, false);
         finalPlayers[currentPlayerIndex].currentVisit = [];
         
@@ -337,6 +367,7 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
     if (turnEndedImmediately || newVisit.length === 3) {
         setIsProcessing(true); 
         setTimeout(() => {
+            // KORJAUS: Käytetään updatedPlayers, ei players
             const finalPlayers = [...updatedPlayers];
             finalPlayers[currentPlayerIndex].currentVisit = [];
             setPlayers(finalPlayers);
@@ -346,42 +377,9 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
   };
 
   // --- HELPERS ---
-  
-  // Apufunktio: Vaihda vuoroa annetun tilan perusteella
   const nextTurnWithState = (currentPlayersState: PlayerState[]) => {
       const nextIndex = (currentPlayerIndex + 1) % currentPlayersState.length;
       setCurrentPlayerIndex(nextIndex);
-  };
-
-  const processVisit = (visit: Throw[], isBust: boolean) => {
-      saveStateToHistory();
-      setIsProcessing(true);
-
-      const updatedPlayers = [...players];
-      const p = updatedPlayers[currentPlayerIndex];
-      const visitTotal = visit.reduce((a, b) => a + b.totalValue, 0);
-      
-      p.stats = updateStats(p, isBust ? 0 : visitTotal, visit.length, (!isBust && p.scoreLeft - visitTotal === 0));
-
-      if (!isBust) {
-          p.scoreLeft -= visitTotal;
-      }
-
-      p.currentVisit = visit;
-      setPlayers(updatedPlayers);
-
-      if (p.scoreLeft === 0 && !isBust) {
-          handleWin(p, updatedPlayers);
-          return;
-      }
-
-      setTimeout(() => {
-          const finalPlayers = [...updatedPlayers];
-          finalPlayers[currentPlayerIndex].currentVisit = [];
-          setPlayers(finalPlayers);
-          nextTurnWithState(finalPlayers);
-          setIsProcessing(false);
-      }, 1500);
   };
 
   const handleWin = (winner: PlayerState, currentPlayers: PlayerState[]) => {

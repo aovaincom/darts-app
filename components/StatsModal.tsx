@@ -162,8 +162,8 @@ const GraphSection = ({ title, data, dataKey, window, setWindow, color, domain }
             </div>
         </div>
         
-        {/* KORJAUS TÄSSÄ: Kiinteä korkeus diville */}
-        <div style={{ width: '100%', height: 400 }}>
+        {/* KORJAUS: style={{ width: '100%', height: 350 }} */}
+        <div style={{ width: '100%', height: 350 }}>
             {data.length > 1 ? (
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
