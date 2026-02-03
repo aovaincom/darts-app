@@ -80,7 +80,7 @@ const calculateRollingStats = (history: HistoryEntry[], windowSize: number) => {
 const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () => void }) => {
     const [tab, setTab] = useState<'x01' | 'rtc'>('x01');
     const [rollingWindow, setRollingWindow] = useState(10);
-    const [showAllTime, setShowAllTime] = useState(true); // UUSI: Näytä kokoaikainen ka
+    const [showAllTime, setShowAllTime] = useState(true); 
     
     const x01Data = useMemo(() => calculateRollingStats(profile.stats.historyX01 || [], rollingWindow), [profile, rollingWindow]);
     const rtcData = useMemo(() => calculateRollingStats(profile.stats.historyRTC || [], rollingWindow), [profile, rollingWindow]);
@@ -132,14 +132,16 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                                 <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                                     <h3 className="text-sm text-gray-400">Progress</h3>
                                     <div className="flex gap-2 items-center">
-                                        <label className="text-xs text-gray-400 flex items-center gap-1">
+                                        <label className="text-xs text-gray-400 flex items-center gap-1 cursor-pointer">
                                             <input type="checkbox" checked={showAllTime} onChange={e => setShowAllTime(e.target.checked)} />
                                             Show Cumulative
                                         </label>
-                                        <select value={rollingWindow} onChange={e => setRollingWindow(Number(e.target.value))} className="bg-slate-800 text-white text-xs border border-slate-600 rounded">
+                                        <select value={rollingWindow} onChange={e => setRollingWindow(Number(e.target.value))} className="bg-slate-800 text-white text-xs border border-slate-600 rounded cursor-pointer">
                                             <option value="5">Roll 5</option>
                                             <option value="10">Roll 10</option>
                                             <option value="20">Roll 20</option>
+                                            <option value="50">Roll 50</option>
+                                            <option value="100">Roll 100</option>
                                         </select>
                                     </div>
                                 </div>
@@ -153,7 +155,7 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                                                 <Tooltip contentStyle={{backgroundColor: '#1e293b'}} />
                                                 <Legend />
                                                 <Line type="monotone" name={`Rolling (${rollingWindow})`} dataKey="rolling" stroke="#4ade80" strokeWidth={2} dot={false} />
-                                                {showAllTime && <Line type="monotone" name="Cumulative" dataKey="cumulative" stroke="#facc15" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
+                                                {showAllTime && <Line type="monotone" name="Cumulative Avg" dataKey="cumulative" stroke="#facc15" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
                                             </LineChart>
                                         </ResponsiveContainer>
                                     ) : <div className="text-center text-gray-500 pt-10">Play more games to see graph</div>}
@@ -170,7 +172,7 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                                 <div className="bg-slate-900 p-4 rounded border border-slate-700 text-center"><div className="text-gray-500 text-xs">Hit %</div><div className="text-2xl font-bold text-blue-400">{(profile.stats.rtcTotalThrows ? ((profile.stats.rtcTotalHits||0)/profile.stats.rtcTotalThrows*100).toFixed(1) : 0)}%</div></div>
                             </div>
 
-                            {/* UUSI: SECTOR GRID */}
+                            {/* SECTOR GRID */}
                             <div className="bg-slate-900 p-4 rounded border border-slate-700">
                                 <h3 className="text-sm text-gray-400 mb-3 uppercase font-bold">Sector Accuracy</h3>
                                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2">
@@ -180,7 +182,6 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                                         const hits = stats?.hits || 0;
                                         const pct = attempts > 0 ? Math.round((hits / attempts) * 100) : 0;
                                         
-                                        // Värikoodaus
                                         let bgClass = "bg-slate-800 border-slate-700";
                                         let textClass = "text-gray-500";
                                         if (attempts > 0) {
@@ -200,13 +201,23 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                                 </div>
                             </div>
 
+                            {/* RTC GRAPH */}
                              <div className="bg-slate-900 p-4 rounded border border-slate-700 mt-4">
-                                <div className="flex justify-between mb-4">
+                                <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
                                     <h3 className="text-sm text-gray-400">Hit % Progress</h3>
-                                    <select value={rollingWindow} onChange={e => setRollingWindow(Number(e.target.value))} className="bg-slate-800 text-white text-xs border border-slate-600 rounded">
-                                        <option value="5">5 Games</option>
-                                        <option value="10">10 Games</option>
-                                    </select>
+                                    <div className="flex gap-2 items-center">
+                                        <label className="text-xs text-gray-400 flex items-center gap-1 cursor-pointer">
+                                            <input type="checkbox" checked={showAllTime} onChange={e => setShowAllTime(e.target.checked)} />
+                                            Show Cumulative
+                                        </label>
+                                        <select value={rollingWindow} onChange={e => setRollingWindow(Number(e.target.value))} className="bg-slate-800 text-white text-xs border border-slate-600 rounded cursor-pointer">
+                                            <option value="5">Roll 5</option>
+                                            <option value="10">Roll 10</option>
+                                            <option value="20">Roll 20</option>
+                                            <option value="50">Roll 50</option>
+                                            <option value="100">Roll 100</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div style={{ width: '100%', height: 300 }}>
                                     {rtcData.length > 1 ? (
@@ -217,7 +228,8 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                                                 <YAxis domain={[0, 100]} />
                                                 <Tooltip contentStyle={{backgroundColor: '#1e293b'}} />
                                                 <Legend />
-                                                <Line type="monotone" name="Rolling %" dataKey="rolling" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                                                <Line type="monotone" name={`Rolling % (${rollingWindow})`} dataKey="rolling" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                                                {showAllTime && <Line type="monotone" name="Cumulative %" dataKey="cumulative" stroke="#facc15" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
                                             </LineChart>
                                         </ResponsiveContainer>
                                     ) : <div className="text-center text-gray-500 pt-10">Play more games</div>}
@@ -609,7 +621,7 @@ export default function Home() {
       }
   }, [currentPlayerIndex, gameStarted, isProcessing, matchResult]);
 
-const saveAndExit = () => {
+  const saveAndExit = () => {
     // TALLENNUS
     const updates: any[] = [];
     players.forEach(p => {
@@ -617,9 +629,9 @@ const saveAndExit = () => {
             if (settings.gameMode === 'x01') {
                 updates.push({ id: p.profileId, stats: { 
                     gamesPlayed: 1, 
-                    totalScore: p.stats.totalScore, // Lähetetään pelin saldo, useProfiles summaa
+                    totalScore: p.stats.totalScore, 
                     totalDarts: p.stats.totalDarts, 
-                    highestCheckout: p.stats.highestCheckout, // useProfiles ottaa max()
+                    highestCheckout: p.stats.highestCheckout,
                     scores60plus: p.stats.scores60plus,
                     scores80plus: p.stats.scores80plus,
                     scores100plus: p.stats.scores100plus,
@@ -633,8 +645,8 @@ const saveAndExit = () => {
                     rtcGamesPlayed: 1,
                     rtcTotalThrows: p.stats.rtcDartsThrown,
                     rtcTotalHits: p.stats.rtcTargetsHit,
-                    rtcBestDarts: p.rtcFinished ? p.stats.rtcDartsThrown : undefined, // useProfiles ottaa min()
-                    rtcSectorHistory: p.stats.rtcSectorHistory // useProfiles yhdistää objektit
+                    rtcBestDarts: p.rtcFinished ? p.stats.rtcDartsThrown : undefined,
+                    rtcSectorStats: p.stats.rtcSectorHistory // TALLENNA SEKTORIT
                 }});
             }
         }
