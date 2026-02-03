@@ -646,7 +646,7 @@ export default function Home() {
                     rtcTotalThrows: p.stats.rtcDartsThrown,
                     rtcTotalHits: p.stats.rtcTargetsHit,
                     rtcBestDarts: p.rtcFinished ? p.stats.rtcDartsThrown : undefined,
-                    rtcSectorStats: p.stats.rtcSectorHistory // TALLENNA SEKTORIT
+                    rtcSectorHistory: p.stats.rtcSectorHistory // KORJATTU: Oikea avain tallennukseen
                 }});
             }
         }
@@ -796,8 +796,8 @@ export default function Home() {
                                  {players[currentPlayerIndex]?.rtcTarget === 21 ? 'BULL' : players[currentPlayerIndex]?.rtcTarget}
                              </div>
                              <div className="flex gap-2">
-                                 <button onClick={()=>handleRTCThrow(false)} className="flex-1 h-24 bg-red-900/40 border-2 border-red-600/50 rounded-xl text-4xl text-red-200 transition-colors hover:bg-red-900/60">X</button>
-                                 <button onClick={()=>handleRTCThrow(true)} className="flex-1 h-24 bg-green-900/40 border-2 border-green-500/50 rounded-xl text-4xl text-green-200 transition-colors hover:bg-green-900/60">✓</button>
+                                 <button onClick={()=>handleRTCThrow(false)} className="flex-1 h-24 bg-red-900/40 border-2 border-red-600/50 rounded-xl text-4xl text-red-200 transition-all hover:bg-red-900/60 active:scale-95 active:brightness-125">X</button>
+                                 <button onClick={()=>handleRTCThrow(true)} className="flex-1 h-24 bg-green-900/40 border-2 border-green-500/50 rounded-xl text-4xl text-green-200 transition-all hover:bg-green-900/60 active:scale-95 active:brightness-125">✓</button>
                              </div>
                          </div>
                      )}
