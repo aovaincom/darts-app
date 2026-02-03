@@ -257,8 +257,8 @@ export default function Home() {
   const [settings, setSettings] = useState({
     gameMode: 'x01' as 'x01' | 'rtc',
     startScore: 501,
-    doubleIn: false,
-    doubleOut: true,
+    doubleIn: false, // Oletuksena pois
+    doubleOut: true, // Oletuksena päällä
     playerCount: 2,
     matchMode: 'legs' as 'legs' | 'sets',
     targetToWin: 3,
@@ -359,12 +359,31 @@ export default function Home() {
           if (p.isBot) return prev; 
 
           const val = score * multiplier;
-          p.currentVisit.push({ score, multiplier, totalValue: val });
-          const nextScore = p.scoreLeft - val;
+          let effectiveVal = val;
 
+          // Double In Tarkistus
+          if (settings.doubleIn && p.scoreLeft === settings.startScore) {
+              if (multiplier !== 2 && score !== 50) {
+                  // Jos ei osunut tuplaan, pisteet eivät vähene
+                  effectiveVal = 0;
+              }
+          }
+
+          p.currentVisit.push({ score, multiplier, totalValue: effectiveVal });
+          const nextScore = p.scoreLeft - effectiveVal;
+
+          // Bust Check
           let bust = false;
-          if (nextScore < 0 || nextScore === 1 || (nextScore === 0 && multiplier !== 2 && score !== 50 && settings.doubleOut)) {
-              bust = true;
+          if (settings.doubleOut) {
+              // Normaali Double Out: ei saa mennä alle 0, tasan 1, tai tasan 0 ilman tuplaa
+              if (nextScore < 0 || nextScore === 1 || (nextScore === 0 && multiplier !== 2 && score !== 50)) {
+                  bust = true;
+              }
+          } else {
+              // Single Out: saa lopettaa mihin vain, kunhan menee tasan nollaan
+              if (nextScore < 0) {
+                  bust = true;
+              }
           }
 
           if (bust) {
@@ -385,6 +404,7 @@ export default function Home() {
 
           if (nextScore === 0) {
               p.scoreLeft = 0;
+              // Lasketaan statsit oikein: Jos double in ja eka tikka missas, se on silti heitetty tikka
               const turnTotal = p.currentVisit.reduce((a:number,b:Throw)=>a+b.totalValue,0);
               p.stats = calculateStats(p, turnTotal, p.currentVisit.length, true);
               handleWin(p, newPlayers);
@@ -432,8 +452,11 @@ export default function Home() {
                return newPlayers;
           }
 
-          // TILASTOINTI: Osumat numeroihin
-          const targetKey = p.rtcTarget.toString();
+          // KORJATTU: Talletetaan nykyinen kohde, koska kohta p.rtcTarget kasvaa
+          const currentTargetVal = p.rtcTarget;
+          
+          // TILASTOINTI
+          const targetKey = currentTargetVal.toString();
           if (!p.stats.rtcSectorHistory) p.stats.rtcSectorHistory = {};
           if (!p.stats.rtcSectorHistory[targetKey]) p.stats.rtcSectorHistory[targetKey] = { attempts: 0, hits: 0 };
           
@@ -449,7 +472,8 @@ export default function Home() {
               else p.rtcTarget++;
           }
           
-          p.currentVisit.push({ score: hit ? p.rtcTarget : 0, multiplier: 1, totalValue: 0 });
+          // KORJATTU: Käytetään currentTargetVal historiassa, jotta näkyy se numero jota yritettiin
+          p.currentVisit.push({ score: hit ? currentTargetVal : 0, multiplier: 1, totalValue: 0 });
 
           if (p.rtcFinished || p.currentVisit.length === 3) {
               setIsProcessing(true);
@@ -538,7 +562,15 @@ export default function Home() {
                        for (const t of throws) {
                            const val = t.score * t.multiplier;
                            const next = tempS - val;
-                           if (next < 0 || next === 1 || (next === 0 && t.multiplier !== 2 && t.score !== 50 && settings.doubleOut)) {
+                           // Bot käyttää samoja sääntöjä
+                           let isBust = false;
+                           if (settings.doubleOut) {
+                               if (next < 0 || next === 1 || (next === 0 && t.multiplier !== 2 && t.score !== 50)) isBust = true;
+                           } else {
+                               if (next < 0) isBust = true;
+                           }
+
+                           if (isBust) {
                                bust = true;
                                visit.push({...t, totalValue: val});
                                break;
@@ -646,7 +678,7 @@ export default function Home() {
                     rtcTotalThrows: p.stats.rtcDartsThrown,
                     rtcTotalHits: p.stats.rtcTargetsHit,
                     rtcBestDarts: p.rtcFinished ? p.stats.rtcDartsThrown : undefined,
-                    rtcSectorHistory: p.stats.rtcSectorHistory // KORJATTU: Oikea avain tallennukseen
+                    rtcSectorHistory: p.stats.rtcSectorHistory 
                 }});
             }
         }
@@ -706,6 +738,19 @@ export default function Home() {
                                 <button onClick={() => setSettings(s=>({...s, matchMode: 'legs'}))} className={`flex-1 py-1 rounded ${settings.matchMode === 'legs' ? 'bg-slate-500 text-white' : 'text-gray-400'}`}>Legs</button>
                                 <button onClick={() => setSettings(s=>({...s, matchMode: 'sets'}))} className={`flex-1 py-1 rounded ${settings.matchMode === 'sets' ? 'bg-slate-500 text-white' : 'text-gray-400'}`}>Sets</button>
                             </div>
+                            
+                            {/* UUSI: Double In / Out valinnat */}
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                <div onClick={() => setSettings(s => ({...s, doubleIn: !s.doubleIn}))} className={`p-2 rounded border cursor-pointer flex justify-between items-center ${settings.doubleIn ? 'bg-green-900/30 border-green-500' : 'bg-slate-900 border-slate-700'}`}>
+                                    <span className="text-sm">Double In</span>
+                                    <div className={`w-3 h-3 rounded-full ${settings.doubleIn ? 'bg-green-500' : 'bg-gray-600'}`}></div>
+                                </div>
+                                <div onClick={() => setSettings(s => ({...s, doubleOut: !s.doubleOut}))} className={`p-2 rounded border cursor-pointer flex justify-between items-center ${settings.doubleOut ? 'bg-green-900/30 border-green-500' : 'bg-slate-900 border-slate-700'}`}>
+                                    <span className="text-sm">Double Out</span>
+                                    <div className={`w-3 h-3 rounded-full ${settings.doubleOut ? 'bg-green-500' : 'bg-gray-600'}`}></div>
+                                </div>
+                            </div>
+
                             <div className="flex justify-between items-center mb-4 bg-slate-900/50 p-2 rounded">
                                 <span className="text-sm">To Win Match ({settings.matchMode}): {settings.targetToWin}</span>
                                 <div className="flex gap-1"><button onClick={()=>setSettings(s=>({...s, targetToWin:Math.max(1,s.targetToWin-1)}))} className="w-8 bg-slate-600 rounded">-</button><button onClick={()=>setSettings(s=>({...s, targetToWin:s.targetToWin+1}))} className="w-8 bg-slate-600 rounded">+</button></div>
