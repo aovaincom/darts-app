@@ -14,23 +14,20 @@ type Throw = {
   totalValue: number;
 };
 
-// Laajennettu Stats-tyyppi
 type PlayerStats = {
   average: number;
   totalScore: number;
-  totalDarts: number; // X01 Darts
+  totalDarts: number;
   highestCheckout: number;
-  // Uudet statsit
   scores60plus: number;
   scores80plus: number;
   scores100plus: number;
   scores120plus: number;
   scores140plus: number;
   scores180: number;
-  
   tonPlusFinishes: number;
   rtcTargetsHit: number; 
-  rtcDartsThrown: number; // RTC Darts
+  rtcDartsThrown: number;
   rtcSectorHistory: Record<string, { attempts: number; hits: number }>; 
   // Historia
   historyX01?: HistoryEntry[];
@@ -83,6 +80,7 @@ const calculateRollingStats = (history: HistoryEntry[], windowSize: number) => {
 const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () => void }) => {
     const [tab, setTab] = useState<'x01' | 'rtc'>('x01');
     const [rollingWindow, setRollingWindow] = useState(10);
+    const [showAllTime, setShowAllTime] = useState(true); // UUSI: Näytä kokoaikainen ka
     
     const x01Data = useMemo(() => calculateRollingStats(profile.stats.historyX01 || [], rollingWindow), [profile, rollingWindow]);
     const rtcData = useMemo(() => calculateRollingStats(profile.stats.historyRTC || [], rollingWindow), [profile, rollingWindow]);
@@ -131,13 +129,19 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
 
                             {/* GRAPH */}
                             <div className="bg-slate-900 p-4 rounded border border-slate-700">
-                                <div className="flex justify-between mb-4">
-                                    <h3 className="text-sm text-gray-400">Progress (Rolling Avg)</h3>
-                                    <select value={rollingWindow} onChange={e => setRollingWindow(Number(e.target.value))} className="bg-slate-800 text-white text-xs border border-slate-600 rounded">
-                                        <option value="5">5 Games</option>
-                                        <option value="10">10 Games</option>
-                                        <option value="20">20 Games</option>
-                                    </select>
+                                <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
+                                    <h3 className="text-sm text-gray-400">Progress</h3>
+                                    <div className="flex gap-2 items-center">
+                                        <label className="text-xs text-gray-400 flex items-center gap-1">
+                                            <input type="checkbox" checked={showAllTime} onChange={e => setShowAllTime(e.target.checked)} />
+                                            Show Cumulative
+                                        </label>
+                                        <select value={rollingWindow} onChange={e => setRollingWindow(Number(e.target.value))} className="bg-slate-800 text-white text-xs border border-slate-600 rounded">
+                                            <option value="5">Roll 5</option>
+                                            <option value="10">Roll 10</option>
+                                            <option value="20">Roll 20</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div style={{ width: '100%', height: 300 }}>
                                     {x01Data.length > 1 ? (
@@ -148,8 +152,8 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                                                 <YAxis domain={['auto', 'auto']} />
                                                 <Tooltip contentStyle={{backgroundColor: '#1e293b'}} />
                                                 <Legend />
-                                                <Line type="monotone" name="Rolling" dataKey="rolling" stroke="#4ade80" strokeWidth={2} dot={false} />
-                                                <Line type="monotone" name="Cumulative" dataKey="cumulative" stroke="#facc15" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+                                                <Line type="monotone" name={`Rolling (${rollingWindow})`} dataKey="rolling" stroke="#4ade80" strokeWidth={2} dot={false} />
+                                                {showAllTime && <Line type="monotone" name="Cumulative" dataKey="cumulative" stroke="#facc15" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
                                             </LineChart>
                                         </ResponsiveContainer>
                                     ) : <div className="text-center text-gray-500 pt-10">Play more games to see graph</div>}
@@ -165,6 +169,37 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                                 <div className="bg-slate-900 p-4 rounded border border-slate-700 text-center"><div className="text-gray-500 text-xs">Total Throws</div><div className="text-2xl font-bold text-gray-300">{profile.stats.rtcTotalThrows || 0}</div></div>
                                 <div className="bg-slate-900 p-4 rounded border border-slate-700 text-center"><div className="text-gray-500 text-xs">Hit %</div><div className="text-2xl font-bold text-blue-400">{(profile.stats.rtcTotalThrows ? ((profile.stats.rtcTotalHits||0)/profile.stats.rtcTotalThrows*100).toFixed(1) : 0)}%</div></div>
                             </div>
+
+                            {/* UUSI: SECTOR GRID */}
+                            <div className="bg-slate-900 p-4 rounded border border-slate-700">
+                                <h3 className="text-sm text-gray-400 mb-3 uppercase font-bold">Sector Accuracy</h3>
+                                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2">
+                                    {Array.from({length: 21}, (_, i) => i + 1).map(num => {
+                                        const stats = profile.stats.rtcSectorHistory?.[num.toString()];
+                                        const attempts = stats?.attempts || 0;
+                                        const hits = stats?.hits || 0;
+                                        const pct = attempts > 0 ? Math.round((hits / attempts) * 100) : 0;
+                                        
+                                        // Värikoodaus
+                                        let bgClass = "bg-slate-800 border-slate-700";
+                                        let textClass = "text-gray-500";
+                                        if (attempts > 0) {
+                                            if (pct >= 50) { bgClass = "bg-green-900/30 border-green-800"; textClass = "text-green-400"; }
+                                            else if (pct >= 30) { bgClass = "bg-yellow-900/30 border-yellow-800"; textClass = "text-yellow-400"; }
+                                            else { bgClass = "bg-red-900/30 border-red-800"; textClass = "text-red-400"; }
+                                        }
+
+                                        return (
+                                            <div key={num} className={`${bgClass} border p-2 rounded flex flex-col items-center`}>
+                                                <div className="text-xs text-gray-400">{num === 21 ? 'BULL' : num}</div>
+                                                <div className={`text-lg font-bold ${textClass}`}>{pct}%</div>
+                                                <div className="text-[10px] text-gray-500">{hits}/{attempts}</div>
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            </div>
+
                              <div className="bg-slate-900 p-4 rounded border border-slate-700 mt-4">
                                 <div className="flex justify-between mb-4">
                                     <h3 className="text-sm text-gray-400">Hit % Progress</h3>
@@ -385,9 +420,18 @@ export default function Home() {
                return newPlayers;
           }
 
+          // TILASTOINTI: Osumat numeroihin
+          const targetKey = p.rtcTarget.toString();
+          if (!p.stats.rtcSectorHistory) p.stats.rtcSectorHistory = {};
+          if (!p.stats.rtcSectorHistory[targetKey]) p.stats.rtcSectorHistory[targetKey] = { attempts: 0, hits: 0 };
+          
+          p.stats.rtcSectorHistory[targetKey].attempts += 1;
           p.stats.rtcDartsThrown++;
+          
           if (hit) {
               p.stats.rtcTargetsHit++;
+              p.stats.rtcSectorHistory[targetKey].hits += 1;
+              
               const finishTarget = settings.rtcIncludeBull ? 21 : 20;
               if (p.rtcTarget === finishTarget) p.rtcFinished = true;
               else p.rtcTarget++;
@@ -429,12 +473,10 @@ export default function Home() {
       let setFinished = false;
       
       if (settings.matchMode === 'sets') {
-          // KORJATTU SET LOGIIKKA: Voita X legiä voittaaksesi setin
           if (winner.legsWon >= settings.legsPerSet) {
               setFinished = true;
               winner.setsWon++;
               currentPlayers.forEach(pl => pl.legsWon = 0);
-              // Setin voitto -> Matchin voitto?
               if (winner.setsWon >= settings.targetToWin) matchWon = true;
           }
       } else {
@@ -523,11 +565,13 @@ export default function Home() {
                        let hits = 0;
                        let finished = false;
                        let tempT = bot.rtcTarget;
+                       const finishTarget = settings.rtcIncludeBull ? 21 : 20;
+
                        for(let i=0; i<3; i++) {
-                           if (tempT > (settings.rtcIncludeBull?21:20)) break;
+                           if (tempT > finishTarget) break;
                            if (Math.random()*100 < (bot.botSkill+10)) {
                                hits++;
-                               if (tempT === (settings.rtcIncludeBull?21:20)) finished = true;
+                               if (tempT === finishTarget) finished = true;
                                tempT++;
                            }
                        }
@@ -565,7 +609,7 @@ export default function Home() {
       }
   }, [currentPlayerIndex, gameStarted, isProcessing, matchResult]);
 
-  const saveAndExit = () => {
+const saveAndExit = () => {
     // TALLENNUS
     const updates: any[] = [];
     players.forEach(p => {
@@ -573,22 +617,24 @@ export default function Home() {
             if (settings.gameMode === 'x01') {
                 updates.push({ id: p.profileId, stats: { 
                     gamesPlayed: 1, 
-                    totalScore: p.stats.totalScore, 
+                    totalScore: p.stats.totalScore, // Lähetetään pelin saldo, useProfiles summaa
                     totalDarts: p.stats.totalDarts, 
-                    highestCheckout: p.stats.highestCheckout,
+                    highestCheckout: p.stats.highestCheckout, // useProfiles ottaa max()
                     scores60plus: p.stats.scores60plus,
                     scores80plus: p.stats.scores80plus,
                     scores100plus: p.stats.scores100plus,
                     scores120plus: p.stats.scores120plus,
                     scores140plus: p.stats.scores140plus,
                     scores180: p.stats.scores180,
+                    tonPlusFinishes: p.stats.tonPlusFinishes
                 }});
             } else {
                 updates.push({ id: p.profileId, stats: {
                     rtcGamesPlayed: 1,
                     rtcTotalThrows: p.stats.rtcDartsThrown,
                     rtcTotalHits: p.stats.rtcTargetsHit,
-                    rtcBestDarts: p.rtcFinished ? p.stats.rtcDartsThrown : undefined
+                    rtcBestDarts: p.rtcFinished ? p.stats.rtcDartsThrown : undefined, // useProfiles ottaa min()
+                    rtcSectorHistory: p.stats.rtcSectorHistory // useProfiles yhdistää objektit
                 }});
             }
         }
@@ -596,7 +642,7 @@ export default function Home() {
     updateManyProfiles(updates);
     
     // NOLLAUS JA PALUU MENUUN
-    setMatchResult(null); // TÄRKEÄ KORJAUS: Nollaa modal
+    setMatchResult(null); 
     setGameStarted(false);
     setSelectedProfileIds([]);
     setHistoryStack([]);
@@ -620,8 +666,11 @@ export default function Home() {
                                 if (selectedProfileIds.includes(p.id)) setSelectedProfileIds(prev => prev.filter(id => id !== p.id));
                                 else setSelectedProfileIds(prev => [...prev, p.id]);
                             }}>
-                                <div><div className="font-bold">{p.name}</div><div className="text-xs text-gray-400">Avg: {((p.stats.totalScore / (p.stats.totalDarts||1))*3).toFixed(1)}</div></div>
-                                <button onClick={(e) => {e.stopPropagation(); setViewingProfile(p);}} className="bg-slate-600 px-2 py-1 rounded text-xs">STATS</button>
+                                <div className="flex-1"><div className="font-bold">{p.name}</div><div className="text-xs text-gray-400">Avg: {((p.stats.totalScore / (p.stats.totalDarts||1))*3).toFixed(1)}</div></div>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={(e) => {e.stopPropagation(); setViewingProfile(p);}} className="bg-slate-600 hover:bg-blue-600 px-2 py-1 rounded text-xs font-bold transition-colors">STATS</button>
+                                    <button onClick={(e) => {e.stopPropagation(); deleteProfile(p.id);}} className="text-gray-500 hover:text-red-500 p-1 rounded transition-colors" title="Delete Profile">🗑️</button>
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -635,6 +684,7 @@ export default function Home() {
                          <button onClick={()=>setSettings(s=>({...s, gameMode:'x01'}))} className={`flex-1 py-2 rounded border ${settings.gameMode==='x01'?'bg-slate-700 border-green-500':'bg-slate-900 border-transparent'}`}>X01</button>
                          <button onClick={()=>setSettings(s=>({...s, gameMode:'rtc'}))} className={`flex-1 py-2 rounded border ${settings.gameMode==='rtc'?'bg-slate-700 border-blue-500':'bg-slate-900 border-transparent'}`}>RTC</button>
                      </div>
+                     
                      {settings.gameMode === 'x01' && (
                          <>
                             <div className="flex gap-2 mb-4">
@@ -656,9 +706,24 @@ export default function Home() {
                             )}
                          </>
                      )}
+
+                     {settings.gameMode === 'rtc' && (
+                         <div className="flex justify-between items-center bg-slate-900/50 p-3 rounded border border-blue-900/50 mb-4">
+                             <span className="text-gray-300">Include Bullseye (21)?</span>
+                             <button onClick={() => setSettings(s=>({...s, rtcIncludeBull: !s.rtcIncludeBull}))} className={`w-14 h-8 rounded-full transition-colors relative ${settings.rtcIncludeBull ? 'bg-green-500' : 'bg-slate-600'}`}>
+                                 <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-transform ${settings.rtcIncludeBull ? 'left-7' : 'left-1'}`}></div>
+                             </button>
+                         </div>
+                     )}
+
                      <div className="bg-slate-900/50 p-4 rounded mb-4">
                          <div className="flex justify-between items-center mb-2"><span className="text-gray-400">Add Bot</span> <div className="flex gap-2"><button onClick={()=>setBotConfig(b=>({...b, count: Math.max(0,b.count-1)}))} className="bg-slate-700 w-8 rounded">-</button><span>{botConfig.count}</span><button onClick={()=>setBotConfig(b=>({...b, count: Math.min(1,b.count+1)}))} className="bg-slate-700 w-8 rounded">+</button></div></div>
-                         {botConfig.count>0 && <input type="range" min="20" max="100" value={botConfig.skill} onChange={e=>setBotConfig(b=>({...b, skill: Number(e.target.value)}))} className="w-full" />}
+                         {botConfig.count>0 && (
+                             <>
+                                <input type="range" min="20" max="100" value={botConfig.skill} onChange={e=>setBotConfig(b=>({...b, skill: Number(e.target.value)}))} className="w-full" />
+                                <div className="text-xs text-center text-gray-500 mt-1">Est. Avg: <span className="text-white font-bold">{Math.round(botConfig.skill * 0.8 + 15)} - {Math.round(botConfig.skill * 1.2 + 20)}</span></div>
+                             </>
+                         )}
                      </div>
                      <button onClick={startGame} disabled={selectedProfileIds.length===0} className="w-full bg-green-600 hover:bg-green-500 py-4 rounded-xl font-bold text-xl disabled:opacity-50">START GAME</button>
                 </div>
@@ -701,8 +766,8 @@ export default function Home() {
 
             <div className="flex-1 bg-slate-950 flex flex-col items-center justify-center relative p-4">
                  <div className="absolute top-4 right-4 flex gap-2">
-                     <button onClick={undoLastThrow} className="bg-yellow-600/50 border border-yellow-600 px-4 py-2 rounded text-yellow-200 font-bold hover:bg-yellow-600">UNDO</button>
-                     <button onClick={saveAndExit} className="bg-red-900/50 border border-red-800 px-4 py-2 rounded text-red-200 font-bold hover:bg-red-800">EXIT</button>
+                     <button onClick={undoLastThrow} className="bg-yellow-600/50 border border-yellow-600 px-4 py-2 rounded text-yellow-200 font-bold hover:bg-yellow-600 transition-colors">UNDO</button>
+                     <button onClick={saveAndExit} className="bg-red-900/50 border border-red-800 px-4 py-2 rounded text-red-200 font-bold hover:bg-red-800 transition-colors">EXIT</button>
                  </div>
                  
                  <div className="mb-4 text-center">
@@ -719,8 +784,8 @@ export default function Home() {
                                  {players[currentPlayerIndex]?.rtcTarget === 21 ? 'BULL' : players[currentPlayerIndex]?.rtcTarget}
                              </div>
                              <div className="flex gap-2">
-                                 <button onClick={()=>handleRTCThrow(false)} className="flex-1 h-24 bg-red-900/40 border-2 border-red-600/50 rounded-xl text-4xl text-red-200">X</button>
-                                 <button onClick={()=>handleRTCThrow(true)} className="flex-1 h-24 bg-green-900/40 border-2 border-green-500/50 rounded-xl text-4xl text-green-200">✓</button>
+                                 <button onClick={()=>handleRTCThrow(false)} className="flex-1 h-24 bg-red-900/40 border-2 border-red-600/50 rounded-xl text-4xl text-red-200 transition-colors hover:bg-red-900/60">X</button>
+                                 <button onClick={()=>handleRTCThrow(true)} className="flex-1 h-24 bg-green-900/40 border-2 border-green-500/50 rounded-xl text-4xl text-green-200 transition-colors hover:bg-green-900/60">✓</button>
                              </div>
                          </div>
                      )}
