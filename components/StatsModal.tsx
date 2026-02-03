@@ -4,7 +4,6 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { SavedProfile, HistoryEntry } from '../hooks/useProfiles';
 
-// Apufunktio datan laskemiseen
 const calculateRollingStats = (history: HistoryEntry[], windowSize: number) => {
     if (!history || history.length === 0) return [];
 
@@ -163,8 +162,8 @@ const GraphSection = ({ title, data, dataKey, window, setWindow, color, domain }
             </div>
         </div>
         
-        {/* KORJAUS: style={{ width: '100%', height: 300 }} varmistaa että containerilla on koko */}
-        <div style={{ width: '100%', height: 300 }}>
+        {/* KORJAUS TÄSSÄ: Kiinteä korkeus diville */}
+        <div style={{ width: '100%', height: 400 }}>
             {data.length > 1 ? (
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                     <LineChart data={data} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
@@ -179,7 +178,7 @@ const GraphSection = ({ title, data, dataKey, window, setWindow, color, domain }
                 </ResponsiveContainer>
             ) : (
                 <div className="h-full flex items-center justify-center text-gray-500 bg-slate-900/50 rounded-lg border border-slate-700 border-dashed">
-                    Not enough data yet.
+                    Not enough data yet. Play more games!
                 </div>
             )}
         </div>

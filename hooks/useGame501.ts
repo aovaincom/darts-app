@@ -71,15 +71,13 @@ type GameHistoryState = {
 export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProfile[], botConfig?: {count: number, skill: number}) => {
   const [players, setPlayers] = useState<PlayerState[]>([]);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
-  
   const [legStarterIndex, setLegStarterIndex] = useState(0);
   const [setStarterIndex, setSetStarterIndex] = useState(0);
-
   const [isProcessing, setIsProcessing] = useState(false);
   const [matchResult, setMatchResult] = useState<MatchResult>(null);
   const [historyStack, setHistoryStack] = useState<GameHistoryState[]>([]);
 
-  // 1. ALUSTUS
+  // INIT
   useEffect(() => {
     const createPlayer = (id: number, name: string, isBot: boolean, skill: number, profileId?: string): PlayerState => ({
       id, profileId, name, isBot, botSkill: skill,
@@ -91,7 +89,6 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
     });
 
     const humanPlayers = selectedProfiles.map((profile, index) => createPlayer(index, profile.name, false, 0, profile.id));
-    
     const bots = [];
     if (botConfig && botConfig.count > 0) {
         for (let i = 0; i < botConfig.count; i++) {
@@ -108,11 +105,11 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
     setHistoryStack([]);
   }, [selectedProfiles, settings.startScore, settings.gameMode, settings.rtcIncludeBull, botConfig]);
 
-  // 2. DARTBOT TRIGGER
+  // BOT TURN EFFECT
   useEffect(() => {
     if (players.length === 0 || matchResult) return;
-
     const currentPlayer = players[currentPlayerIndex];
+    
     if (currentPlayer && currentPlayer.isBot && !isProcessing) {
         const delay = setTimeout(() => {
             if (settings.gameMode === 'x01') executeBotTurnX01(currentPlayer);
@@ -122,7 +119,6 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
     }
   }, [currentPlayerIndex, players, isProcessing, matchResult]);
 
-  // --- UNDO / HISTORY ---
   const saveStateToHistory = () => {
       setHistoryStack(prev => [...prev, { players: JSON.parse(JSON.stringify(players)), currentPlayerIndex, legStarterIndex, setStarterIndex }]);
   };
@@ -137,15 +133,13 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
       setHistoryStack(prev => prev.slice(0, -1));
   };
 
-  // --- RESET GAME ---
   const resetGame = () => {
     setMatchResult(null);
     setIsProcessing(false);
     setHistoryStack([]);
-    // State resetoidaan useEffectin kautta kun valikkoon palataan
   };
 
-  // --- BOT LOGIC X01 ---
+  // --- BOT LOGIC ---
   const executeBotTurnX01 = (bot: PlayerState) => {
       const throws = getBotTurn(bot.scoreLeft, bot.botSkill);
       let tempScore = bot.scoreLeft;
@@ -174,41 +168,9 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
           if (nextScore === 0) break; 
       }
 
-      processBotVisitResult(visitThrows, bust);
+      processVisit(visitThrows, bust);
   };
 
-  const processBotVisitResult = (visit: Throw[], isBust: boolean) => {
-      saveStateToHistory();
-      setIsProcessing(true);
-
-      const updatedPlayers = [...players];
-      const p = updatedPlayers[currentPlayerIndex];
-      const visitTotal = visit.reduce((a, b) => a + b.totalValue, 0);
-      
-      p.stats = updateStats(p, isBust ? 0 : visitTotal, visit.length, (!isBust && p.scoreLeft - visitTotal === 0));
-
-      if (!isBust) {
-          p.scoreLeft -= visitTotal;
-      }
-
-      p.currentVisit = visit;
-      setPlayers(updatedPlayers);
-
-      if (p.scoreLeft === 0 && !isBust) {
-          handleWin(p, updatedPlayers);
-          return;
-      }
-
-      setTimeout(() => {
-          const finalPlayers = [...updatedPlayers];
-          finalPlayers[currentPlayerIndex].currentVisit = [];
-          setPlayers(finalPlayers);
-          nextTurn();
-          setIsProcessing(false);
-      }, 1500);
-  };
-
-  // --- BOT LOGIC RTC ---
   const executeBotTurnRTC = (bot: PlayerState) => {
       if (bot.rtcFinished) {
           nextTurn();
@@ -221,7 +183,6 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
 
       for (let i=0; i<3; i++) {
           if (bot.rtcTarget > finishTarget) break; 
-          
           const roll = Math.random() * 100;
           const hitChance = bot.botSkill + 10; 
           
@@ -236,6 +197,7 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
           }
       }
       
+      // Kopioidaan tila ja välitetään se eteenpäin ilman state-viiveitä
       const updatedPlayers = [...players];
       const p = updatedPlayers[currentPlayerIndex];
       p.stats.rtcDartsThrown += 3; 
@@ -247,6 +209,7 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
       setIsProcessing(true);
 
       setTimeout(() => {
+         // TÄRKEÄ KORJAUS: Käytetään updatedPlayers, ei players
          const finalPlayers = [...updatedPlayers];
          finalPlayers[currentPlayerIndex].currentVisit = [];
          setPlayers(finalPlayers);
@@ -254,10 +217,10 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
       }, 1000);
   };
 
-  // --- HUMAN INPUTS ---
+  // --- IHMISEN TOIMINNOT ---
   const handleDartThrow = (score: number, multiplier: number) => {
     const currentPlayer = players[currentPlayerIndex];
-    if (players.length === 0 || isProcessing || matchResult || players[currentPlayerIndex].isBot) return;
+    if (players.length === 0 || isProcessing || matchResult || currentPlayer.isBot) return;
     if (settings.gameMode !== 'x01') return; 
 
     saveStateToHistory();
@@ -275,28 +238,28 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
        if (newScoreLeft < 0) isBust = true;
     }
 
+    const updatedPlayers = [...players];
+    const p = updatedPlayers[currentPlayerIndex];
+
     if (isBust) {
-        const updatedPlayers = [...players];
-        updatedPlayers[currentPlayerIndex].currentVisit = updatedVisit;
+        p.currentVisit = updatedVisit;
         setPlayers(updatedPlayers);
 
         setTimeout(() => {
-            const finalPlayers = [...players];
+            // TÄRKEÄ KORJAUS: Käytetään updatedPlayers pohjana
+            const finalPlayers = [...updatedPlayers];
             finalPlayers[currentPlayerIndex].currentVisit = [];
-            const p = finalPlayers[currentPlayerIndex];
-            p.stats.totalDarts += updatedVisit.length; 
+            finalPlayers[currentPlayerIndex].stats.totalDarts += updatedVisit.length; 
             
             setPlayers(finalPlayers);
-            nextTurn(); 
+            // Välitetään finalPlayers nextTurnille, jotta se tietää uuden tilan
+            nextTurnWithState(finalPlayers); 
             setIsProcessing(false);
         }, 1000);
         return;
     }
 
     if (newScoreLeft === 0) {
-        const updatedPlayers = [...players];
-        const p = updatedPlayers[currentPlayerIndex];
-        
         p.currentVisit = updatedVisit;
         p.scoreLeft = 0;
         p.stats = updateStats(p, updatedVisit.reduce((a,b)=>a+b.totalValue,0), updatedVisit.length, true);
@@ -306,22 +269,25 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
         return;
     }
 
-    const updatedPlayers = [...players];
-    updatedPlayers[currentPlayerIndex].currentVisit = updatedVisit;
-    updatedPlayers[currentPlayerIndex].scoreLeft = newScoreLeft;
+    // Normaali heitto
+    p.currentVisit = updatedVisit;
+    p.scoreLeft = newScoreLeft;
     setPlayers(updatedPlayers);
 
     if (updatedVisit.length === 3) {
       setTimeout(() => {
-        const finalPlayers = [...players];
-        const p = finalPlayers[currentPlayerIndex];
+        // TÄRKEÄ KORJAUS: Kutsutaan processVisit, joka käyttää updatedPlayers
+        // Huom: processVisit olettaa saavansa heitot, mutta meillä on jo state päivitetty.
+        // Yksinkertaistetaan: tehdään viimeistely tässä käyttäen updatedPlayers.
+        const finalPlayers = [...updatedPlayers];
         const turnTotal = updatedVisit.reduce((acc, t) => acc + t.totalValue, 0);
         
-        p.stats = updateStats(p, turnTotal, 3, false);
-        p.currentVisit = [];
-        setPlayers(finalPlayers);
+        // Päivitä statsit finalPlayersiin
+        finalPlayers[currentPlayerIndex].stats = updateStats(finalPlayers[currentPlayerIndex], turnTotal, 3, false);
+        finalPlayers[currentPlayerIndex].currentVisit = [];
         
-        nextTurn();
+        setPlayers(finalPlayers);
+        nextTurnWithState(finalPlayers);
         setIsProcessing(false);
       }, 500);
     } else {
@@ -365,13 +331,13 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
 
     const dummyThrow: Throw = { score: hit ? target : 0, multiplier: 1, totalValue: 0 };
     const newVisit = [...p.currentVisit, dummyThrow];
-    updatedPlayers[currentPlayerIndex].currentVisit = newVisit;
+    p.currentVisit = newVisit;
     setPlayers(updatedPlayers);
 
     if (turnEndedImmediately || newVisit.length === 3) {
         setIsProcessing(true); 
         setTimeout(() => {
-            const finalPlayers = [...players];
+            const finalPlayers = [...updatedPlayers];
             finalPlayers[currentPlayerIndex].currentVisit = [];
             setPlayers(finalPlayers);
             checkRTCEndCondition(finalPlayers);
@@ -380,6 +346,44 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
   };
 
   // --- HELPERS ---
+  
+  // Apufunktio: Vaihda vuoroa annetun tilan perusteella
+  const nextTurnWithState = (currentPlayersState: PlayerState[]) => {
+      const nextIndex = (currentPlayerIndex + 1) % currentPlayersState.length;
+      setCurrentPlayerIndex(nextIndex);
+  };
+
+  const processVisit = (visit: Throw[], isBust: boolean) => {
+      saveStateToHistory();
+      setIsProcessing(true);
+
+      const updatedPlayers = [...players];
+      const p = updatedPlayers[currentPlayerIndex];
+      const visitTotal = visit.reduce((a, b) => a + b.totalValue, 0);
+      
+      p.stats = updateStats(p, isBust ? 0 : visitTotal, visit.length, (!isBust && p.scoreLeft - visitTotal === 0));
+
+      if (!isBust) {
+          p.scoreLeft -= visitTotal;
+      }
+
+      p.currentVisit = visit;
+      setPlayers(updatedPlayers);
+
+      if (p.scoreLeft === 0 && !isBust) {
+          handleWin(p, updatedPlayers);
+          return;
+      }
+
+      setTimeout(() => {
+          const finalPlayers = [...updatedPlayers];
+          finalPlayers[currentPlayerIndex].currentVisit = [];
+          setPlayers(finalPlayers);
+          nextTurnWithState(finalPlayers);
+          setIsProcessing(false);
+      }, 1500);
+  };
+
   const handleWin = (winner: PlayerState, currentPlayers: PlayerState[]) => {
       winner.legsWon++;
       let matchWon = false;
@@ -457,7 +461,7 @@ export const useGameLogic = (settings: GameSettings, selectedProfiles: SavedProf
               return;
           }
       }
-      nextTurn();
+      nextTurnWithState(currentPlayers);
       setIsProcessing(false);
   };
 
