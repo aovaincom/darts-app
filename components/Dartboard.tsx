@@ -7,9 +7,10 @@ const SECTORS = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9,
 interface DartboardProps {
   onThrow: (score: number, multiplier: number) => void;
   currentUserId?: number; 
+  highlight?: { score: number; multiplier: number } | null; // UUSI: Botin heitto
 }
 
-export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId }) => {
+export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, highlight }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const [lastHit, setLastHit] = useState<string | null>(null);
   const [hitPoint, setHitPoint] = useState<{x: number, y: number} | null>(null);
@@ -34,13 +35,32 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId }) 
     }
   }, [flashingSector]);
 
-  // --- UUSI ÄÄNILOGIIKKA ---
+  // --- UUSI: VISUALISOI BOTIN HEITTO ---
+  useEffect(() => {
+    if (highlight) {
+        const { score, multiplier } = highlight;
+        const id = `${score}-${multiplier}`;
+        
+        // 1. Aseta välkkyvä sektori
+        setFlashingSector(id);
+        
+        // 2. Päivitä tekstikenttä taulun alla
+        const label = score === 25 
+            ? (multiplier === 2 ? 'BULL' : '25') 
+            : (score === 50 ? 'BULL' : `${multiplier > 1 ? (multiplier === 3 ? 'T' : 'D') : ''}${score}`);
+            
+        setLastHit(label);
+        
+        // 3. Soita ääni
+        playHitSound();
+    }
+  }, [highlight]);
+
+  // --- ÄÄNILOGIIKKA ---
   const playHitSound = () => {
     try {
-        // Luodaan uusi Audio-objekti joka kerta, jotta nopeat peräkkäiset heitot
-        // kuuluvat päällekkäin (eikä edellinen katkea)
         const audio = new Audio('/sounds/dart-throw.mp3');
-        audio.volume = 0.5; // Voit säätää äänenvoimakkuutta (0.0 - 1.0)
+        audio.volume = 0.5;
         audio.play().catch(e => console.log("Audio play prevented:", e));
     } catch (e) {
         console.error("Audio error", e);
@@ -58,7 +78,6 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId }) 
   const handleClick = (e: React.MouseEvent) => {
     if (!svgRef.current) return;
     
-    // Soitetaan oma mp3
     playHitSound();
 
     const rect = svgRef.current.getBoundingClientRect();
@@ -85,7 +104,7 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId }) 
     const R_DOUBLE_OUT = 180;
 
     if (r < R_BULL) {
-      score = 50; multiplier = 1;
+      score = 50; multiplier = 1; // Inner Bull on teknisesti double 25 säännöissä, mutta usein merkitään 50-1 tai 25-2
     } else if (r < R_OUTER_BULL) {
       score = 25; multiplier = 1;
     } else if (r > R_DOUBLE_OUT) {
@@ -103,7 +122,7 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId }) 
         setFlashingSector(`${score}-${multiplier}`);
     }
 
-    setLastHit(`${multiplier > 1 ? (multiplier === 3 ? 'T' : 'D') : ''}${score}`);
+    setLastHit(`${multiplier > 1 ? (multiplier === 3 ? 'T' : 'D') : ''}${score === 25 ? '25' : (score === 50 ? 'BULL' : score)}`);
     onThrow(score, multiplier);
   };
 
@@ -141,7 +160,7 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId }) 
                 fill={isFlashing ? "#fbbf24" : color} 
                 strokeWidth="1" 
                 stroke="#555" 
-                style={{ transition: "fill 0.1s ease-out" }}
+                style={{ transition: "fill 0.1s ease-out", filter: isFlashing ? "brightness(1.5)" : "none" }}
             />
         );
       };
@@ -200,14 +219,14 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId }) 
             fill={flashingSector === "25-1" ? "#fbbf24" : "#10b981"} 
             stroke="#555" 
             strokeWidth="1" 
-            style={{ transition: "fill 0.1s" }}
+            style={{ transition: "fill 0.1s", filter: flashingSector === "25-1" ? "brightness(1.5)" : "none" }}
           />
           <circle 
             r="12" 
             fill={flashingSector === "50-1" ? "#fbbf24" : "#e11d48"} 
             stroke="#555" 
             strokeWidth="1" 
-            style={{ transition: "fill 0.1s" }}
+            style={{ transition: "fill 0.1s", filter: flashingSector === "50-1" ? "brightness(1.5)" : "none" }}
           />
 
           {renderNumbers()}

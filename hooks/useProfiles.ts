@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 
 export type HistoryEntry = {
-    value?: number; // Legacy support
+    value?: number;
     gameValue?: number;
     cumulativeValue?: number;
     date: string;
@@ -21,6 +21,8 @@ export type SavedProfile = {
     totalScore: number;
     totalDarts: number;
     highestCheckout: number;
+    
+    // Scoring
     scores60plus: number;
     scores80plus: number;
     scores100plus: number;
@@ -28,17 +30,28 @@ export type SavedProfile = {
     scores140plus: number;
     scores180: number;
     tonPlusFinishes: number;
+
+    // Advanced X01 Stats (UUDET)
+    first9Sum: number;      // Summa 9 ensimmäisestä tikasta per legi
+    first9Darts: number;    // Kuinka monta tikkaa heitetty "first 9" vaiheessa
+    legsWonDarts: {         // Tilasto: kuinka monella tikalla legi voitettiin
+        9: number;
+        12: number; // 10-12
+        15: number; // 13-15
+        18: number; // 16-18
+        21: number; // 19-21
+        29: number; // 22-29
+        30: number; // 30+
+    };
     
     // RTC
     rtcGamesPlayed: number;
     rtcBestDarts?: number;
     rtcTotalThrows?: number;
     rtcTotalHits?: number;
-    
-    // UUSI: Sektorikohtainen historia
     rtcSectorHistory?: Record<string, { attempts: number; hits: number }>;
 
-    // Graafidata
+    // Historia
     historyX01?: HistoryEntry[];
     historyRTC?: HistoryEntry[];
   };
@@ -72,6 +85,8 @@ export const useProfiles = () => {
         gamesPlayed: 0, legsWon: 0, setsWon: 0,
         totalScore: 0, totalDarts: 0, highestCheckout: 0,
         scores60plus: 0, scores80plus: 0, scores100plus: 0, scores120plus: 0, scores140plus: 0, scores180: 0, tonPlusFinishes: 0,
+        first9Sum: 0, first9Darts: 0,
+        legsWonDarts: { 9: 0, 12: 0, 15: 0, 18: 0, 21: 0, 29: 0, 30: 0 },
         rtcGamesPlayed: 0
       }
     };
@@ -90,20 +105,11 @@ export const useProfiles = () => {
       if (update) {
         const newStats = { ...p.stats, ...update.stats };
         
-        // Päivitetään kumulatiiviset summat (esim. totalScore += peli.score)
-        // Huom: update.stats sisältää tässä kohtaa jo summattuna uudet arvot page.tsx:stä,
-        // TAI se sisältää vain lisäyksen.
-        // Page.tsx:n logiikassa lähetämme koko uuden summan?
-        // Tarkistetaan: page.tsx lähettää "totalScore: p.stats.totalScore" joka on pelin sisäinen summa.
-        // Joten meidän pitää lisätä se vanhaan.
-        
-        // KORJAUS: Page.tsx:n saveAndExit lähettää pelissä kertyneet statsit.
-        // Meidän pitää summata ne tässä.
-        
-        // 1. Numeroiden summaus
+        // Summaa numeeriset arvot
         const numericKeys = [
             'gamesPlayed', 'legsWon', 'setsWon', 'totalScore', 'totalDarts', 
             'scores60plus', 'scores80plus', 'scores100plus', 'scores120plus', 'scores140plus', 'scores180', 'tonPlusFinishes',
+            'first9Sum', 'first9Darts',
             'rtcGamesPlayed', 'rtcTotalThrows', 'rtcTotalHits'
         ] as const;
 
@@ -114,7 +120,7 @@ export const useProfiles = () => {
             }
         });
 
-        // 2. Maksimiarvot (High Score / Best Darts)
+        // Max/Min arvot
         if (update.stats.highestCheckout) {
             newStats.highestCheckout = Math.max(p.stats.highestCheckout || 0, update.stats.highestCheckout);
         }
@@ -123,12 +129,11 @@ export const useProfiles = () => {
             newStats.rtcBestDarts = Math.min(currentBest, update.stats.rtcBestDarts);
         }
 
-        // 3. Sektorit (Merge object)
+        // Merge objektit (Sektorit ja LegsWonDarts)
         if (update.stats.rtcSectorHistory) {
             const oldSec = p.stats.rtcSectorHistory || {};
             const newSec = update.stats.rtcSectorHistory;
             const mergedSec: any = { ...oldSec };
-            
             Object.keys(newSec).forEach(key => {
                 if (!mergedSec[key]) mergedSec[key] = { attempts: 0, hits: 0 };
                 mergedSec[key].attempts += newSec[key].attempts;
@@ -137,11 +142,20 @@ export const useProfiles = () => {
             newStats.rtcSectorHistory = mergedSec;
         }
 
-        // 4. Historia (Graafit)
-        // X01 Avg History
+        if (update.stats.legsWonDarts) {
+            const oldL = p.stats.legsWonDarts || { 9: 0, 12: 0, 15: 0, 18: 0, 21: 0, 29: 0, 30: 0 };
+            const newL = update.stats.legsWonDarts;
+            const mergedL: any = { ...oldL };
+            Object.keys(newL).forEach(key => {
+                // @ts-ignore
+                mergedL[key] = (mergedL[key] || 0) + (newL[key] || 0);
+            });
+            newStats.legsWonDarts = mergedL;
+        }
+
+        // Historia
         if (update.stats.totalScore && update.stats.totalDarts) {
             const gameAvg = (update.stats.totalScore / update.stats.totalDarts) * 3;
-            // Uusi cumulative avg
             const newTotalScore = (p.stats.totalScore || 0) + update.stats.totalScore;
             const newTotalDarts = (p.stats.totalDarts || 0) + update.stats.totalDarts;
             const cumAvg = (newTotalScore / newTotalDarts) * 3;
@@ -154,10 +168,8 @@ export const useProfiles = () => {
             newStats.historyX01 = [...(p.stats.historyX01 || []), entry];
         }
 
-        // RTC Hit% History
         if (update.stats.rtcTotalThrows && update.stats.rtcTotalHits !== undefined) {
             const gamePct = (update.stats.rtcTotalHits / update.stats.rtcTotalThrows) * 100;
-            
             const newThrows = (p.stats.rtcTotalThrows || 0) + update.stats.rtcTotalThrows;
             const newHits = (p.stats.rtcTotalHits || 0) + update.stats.rtcTotalHits;
             const cumPct = newThrows > 0 ? (newHits / newThrows) * 100 : 0;
@@ -183,20 +195,10 @@ export const useProfiles = () => {
   };
 
   const exportStatsToCSV = () => {
-      const headers = ["Name", "Games", "Avg", "HighOut", "180s", "RTC Games", "RTC Acc%"];
-      const rows = profiles.map(p => [
-          p.name,
-          p.stats.gamesPlayed,
-          getAverage(p),
-          p.stats.highestCheckout,
-          p.stats.scores180,
-          p.stats.rtcGamesPlayed || 0,
-          p.stats.rtcTotalThrows ? ((p.stats.rtcTotalHits||0)/p.stats.rtcTotalThrows*100).toFixed(1)+'%' : '0%'
-      ]);
-      
-      const csvContent = "data:text/csv;charset=utf-8," 
-          + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-      
+      // Yksinkertaistettu CSV export (voi laajentaa myöhemmin)
+      const headers = ["Name", "Games", "Avg", "HighOut"];
+      const rows = profiles.map(p => [p.name, p.stats.gamesPlayed, getAverage(p), p.stats.highestCheckout]);
+      const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
       const encodedUri = encodeURI(csvContent);
       const link = document.createElement("a");
       link.setAttribute("href", encodedUri);
