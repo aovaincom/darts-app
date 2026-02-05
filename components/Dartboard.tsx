@@ -44,62 +44,63 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
 
   // --- RENDER HELPERS ---
   const renderRadialButtons = () => {
-      // Säde (etäisyys keskipisteestä)
-      const rDouble = 46; // % containerista
-      const rSingle = 34; 
-      const rTriple = 22; 
+      // SÄÄDETYT ETÄISYYDET (Keskipisteestä)
+      // Jotta kaikki 3 rengasta mahtuvat ja ovat yhtä isoja
+      const rDouble = 44; // Uloin
+      const rSingle = 31; // Keskellä
+      const rTriple = 18; // Sisin
+
+      // YHTENÄINEN KOKO KAIKILLE PALLOILLE
+      const buttonSize = 11; // % taulun leveydestä
 
       return SECTORS.map((num, i) => {
-          // Lasketaan kulma: 20 on ylhäällä (-90 astetta), sektorit 18 asteen välein myötäpäivään
           const angleDeg = (i * 18) - 90;
           const angleRad = angleDeg * (Math.PI / 180);
 
-          // Värit (Standardi Dartboard)
-          // 20 on Musta sektori -> Single=Musta, D/T=Punainen
-          // 1 on Valkoinen sektori -> Single=Valkoinen, D/T=Vihreä
-          const isBlackSector = i % 2 === 0; // Tässä taulukossa parilliset indeksit (20, 18, 13...) ovat mustia
+          // VÄRIT (Musta/Valkoinen sektori)
+          // Indeksi 0 on 20 (Musta), 1 on 1 (Valkoinen) -> Parillinen=Musta
+          const isBlackSector = i % 2 === 0; 
           
-          // Korjaus: SECTORS-listassa 20 on indeksi 0 (parillinen). 
-          // Oikea järjestys väreille: 20(B), 1(W), 18(B), 4(W)...
-          // Joten parilliset indeksit = Musta sektori, Parittomat = Valkoinen
-          
-          const colorSingle = isBlackSector ? "bg-slate-900 border-slate-700 text-white" : "bg-slate-100 border-slate-300 text-black";
+          // S = Musta/Valkoinen, D/T = Punainen/Vihreä
+          const colorSingle = isBlackSector ? "bg-slate-900 border-slate-600 text-white" : "bg-slate-100 border-slate-300 text-slate-900";
           const colorRing = isBlackSector ? "bg-red-600 border-red-800 text-white" : "bg-green-600 border-green-800 text-white";
 
-          // Sijoittelu (prosentteina keskeltä 50%)
-          const getStyle = (radius: number, size: number) => ({
+          const getStyle = (radius: number) => ({
               top: `calc(50% + ${Math.sin(angleRad) * radius}%)`,
               left: `calc(50% + ${Math.cos(angleRad) * radius}%)`,
-              width: `${size}%`,
-              height: `${size}%`,
+              width: `${buttonSize}%`,
+              height: `${buttonSize}%`,
               transform: 'translate(-50%, -50%)',
           });
 
+          // Yhteiset tyylit kaikille napeille
+          const baseBtnClass = "absolute rounded-full border-2 shadow-md flex items-center justify-center font-bold text-sm sm:text-base z-20 transition-transform active:scale-90 hover:brightness-110";
+
           return (
               <React.Fragment key={num}>
-                  {/* DOUBLE (Uloin) */}
+                  {/* DOUBLE */}
                   <button
                       onClick={() => handleClick(num, 2)}
-                      className={`absolute rounded-full border shadow-sm flex items-center justify-center font-bold text-[10px] sm:text-xs z-30 transition-transform active:scale-90 ${flashingBtn === `${num}-2` ? 'bg-yellow-400 border-yellow-200 scale-110' : colorRing}`}
-                      style={getStyle(rDouble, 8)}
+                      className={`${baseBtnClass} ${flashingBtn === `${num}-2` ? 'bg-yellow-400 border-yellow-200 scale-125 z-50 text-black' : colorRing}`}
+                      style={getStyle(rDouble)}
                   >
                       D{num}
                   </button>
 
-                  {/* SINGLE (Keskellä, isoin) */}
+                  {/* SINGLE */}
                   <button
                       onClick={() => handleClick(num, 1)}
-                      className={`absolute rounded-full border-2 shadow-md flex items-center justify-center font-bold text-sm sm:text-lg z-20 transition-transform active:scale-90 ${flashingBtn === `${num}-1` ? 'bg-yellow-400 border-yellow-200 scale-110 text-black' : colorSingle}`}
-                      style={getStyle(rSingle, 13)}
+                      className={`${baseBtnClass} ${flashingBtn === `${num}-1` ? 'bg-yellow-400 border-yellow-200 scale-125 z-50 text-black' : colorSingle}`}
+                      style={getStyle(rSingle)}
                   >
                       {num}
                   </button>
 
-                  {/* TRIPLE (Sisin) */}
+                  {/* TRIPLE */}
                   <button
                       onClick={() => handleClick(num, 3)}
-                      className={`absolute rounded-full border shadow-sm flex items-center justify-center font-bold text-[10px] sm:text-xs z-30 transition-transform active:scale-90 ${flashingBtn === `${num}-3` ? 'bg-yellow-400 border-yellow-200 scale-110' : colorRing}`}
-                      style={getStyle(rTriple, 8)}
+                      className={`${baseBtnClass} ${flashingBtn === `${num}-3` ? 'bg-yellow-400 border-yellow-200 scale-125 z-50 text-black' : colorRing}`}
+                      style={getStyle(rTriple)}
                   >
                       T{num}
                   </button>
@@ -109,45 +110,45 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
   };
 
   return (
-    <div className="relative w-full max-w-[500px] aspect-square mx-auto select-none">
-      {/* BACKGROUND DECORATION */}
-      <div className="absolute inset-0 rounded-full border-[20px] border-slate-800 bg-slate-900/50 shadow-2xl"></div>
-      <div className="absolute inset-[10%] rounded-full border border-slate-700/30"></div>
+    <div className="relative w-full max-w-[650px] aspect-square mx-auto select-none p-2">
+      {/* TAUSTAYMPYRÄT KORISTEENA */}
+      <div className="absolute inset-[2%] rounded-full border-4 border-slate-800 bg-slate-900/40 shadow-2xl"></div>
+      <div className="absolute inset-[15%] rounded-full border border-slate-700/20"></div>
+      <div className="absolute inset-[28%] rounded-full border border-slate-700/20"></div>
+      <div className="absolute inset-[41%] rounded-full border border-slate-700/20"></div>
       
-      {/* RADIAL BUTTONS */}
+      {/* SEKTORIPALLOT */}
       {renderRadialButtons()}
 
-      {/* --- CORNER BUTTONS (SPECIALS) --- */}
+      {/* --- KULMANAPIT (ISOJA JA HELPOSTI OSUTTAVIA) --- */}
       
-      {/* MISS (Top Left) */}
+      {/* MISS (Vasen Ylä) */}
       <button 
         onClick={() => handleClick(0, 0)}
-        className={`absolute top-0 left-0 w-[18%] h-[18%] rounded-2xl border-4 border-slate-700 bg-slate-800 text-slate-500 font-bold text-xs sm:text-sm flex flex-col items-center justify-center hover:bg-slate-700 active:scale-95 transition-all shadow-lg ${flashingBtn === '0-0' ? 'bg-red-500 text-white border-red-400' : ''}`}
+        className={`absolute top-[2%] left-[2%] w-[16%] h-[16%] rounded-2xl border-4 border-slate-700 bg-slate-800 text-slate-500 font-bold text-sm sm:text-xl flex flex-col items-center justify-center hover:bg-slate-700 active:scale-95 transition-all shadow-lg z-30 ${flashingBtn === '0-0' ? 'bg-red-500 text-white border-red-400' : ''}`}
       >
           <span>MISS</span>
-          <span className="text-[10px] opacity-50">0</span>
       </button>
 
-      {/* OUTER BULL (25) (Top Right) */}
+      {/* OUTER BULL / 25 (Oikea Ylä) */}
       <button 
         onClick={() => handleClick(25, 1)}
-        className={`absolute top-0 right-0 w-[18%] h-[18%] rounded-full border-4 border-green-700 bg-green-600 text-white font-bold text-xs sm:text-sm flex flex-col items-center justify-center hover:bg-green-500 active:scale-95 transition-all shadow-lg ${flashingBtn === '25-1' ? 'bg-yellow-400 border-yellow-200' : ''}`}
+        className={`absolute top-[2%] right-[2%] w-[16%] h-[16%] rounded-full border-4 border-green-700 bg-green-600 text-white font-bold text-sm sm:text-xl flex flex-col items-center justify-center hover:bg-green-500 active:scale-95 transition-all shadow-lg z-30 ${flashingBtn === '25-1' ? 'bg-yellow-400 border-yellow-200 text-black' : ''}`}
       >
           <span>25</span>
       </button>
 
-      {/* INNER BULL (50) (Bottom Right) */}
+      {/* INNER BULL / 50 (Oikea Ala) */}
       <button 
-        onClick={() => handleClick(50, 1)} // Tai 25-2 logiikasta riippuen, yleensä 50-1 dartbotissa
-        className={`absolute bottom-0 right-0 w-[18%] h-[18%] rounded-full border-4 border-red-700 bg-red-600 text-white font-bold text-xs sm:text-sm flex flex-col items-center justify-center hover:bg-red-500 active:scale-95 transition-all shadow-lg ${flashingBtn === '50-1' ? 'bg-yellow-400 border-yellow-200' : ''}`}
+        onClick={() => handleClick(50, 1)}
+        className={`absolute bottom-[2%] right-[2%] w-[16%] h-[16%] rounded-full border-4 border-red-700 bg-red-600 text-white font-bold text-sm sm:text-xl flex flex-col items-center justify-center hover:bg-red-500 active:scale-95 transition-all shadow-lg z-30 ${flashingBtn === '50-1' ? 'bg-yellow-400 border-yellow-200 text-black' : ''}`}
       >
           <span>BULL</span>
-          <span className="text-[10px]">50</span>
       </button>
 
-      {/* INFO TEXT CENTER (Optional decoration) */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-slate-900 rounded-full border-4 border-slate-700 flex items-center justify-center z-10 shadow-inner">
-          <span className="text-slate-600 text-[10px] font-bold">DARTS</span>
+      {/* KESKUSTEKSTI (LOGO) */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[14%] h-[14%] bg-slate-800/80 backdrop-blur rounded-full border-2 border-slate-700 flex items-center justify-center z-10 shadow-inner">
+          <span className="text-slate-500 text-[10px] sm:text-xs font-bold tracking-widest">DARTS</span>
       </div>
 
     </div>
