@@ -703,6 +703,8 @@ export default function Home() {
                     first9Sum: p.stats.first9Sum,
                     first9Darts: p.stats.first9Darts,
                     legsWonDarts: p.stats.legsWonDarts,
+                    legsWon: p.legsWon,
+                    setsWon: p.setsWon
                 }});
             } else {
                 updates.push({ id: p.profileId, stats: {
