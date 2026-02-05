@@ -69,13 +69,6 @@ type MatchResult = {
 } | null;
 
 // --- DARTBOT LOGIC ---
-const getGaussianRandom = (mean: number, stdDev: number) => {
-    const u = 1 - Math.random(); 
-    const v = Math.random();
-    const z = Math.sqrt( -2.0 * Math.log( u ) ) * Math.cos( 2.0 * Math.PI * v );
-    return z * stdDev + mean;
-};
-
 const simulateBotThrowX01 = (targetScore: number, skill: number): Throw => {
     let aimScore = 20;
     let aimMult = 3;
@@ -853,30 +846,32 @@ export default function Home() {
                 </div>
             </div>
 
+            {/* KORJATTU: Poistettu rajoittavat divit ja annettu Dartboardille tilaa */}
             <div className="flex-1 bg-slate-950 flex flex-col items-center justify-center relative p-4">
-                 <div className="absolute top-4 right-4 flex gap-2">
+                 <div className="absolute top-4 right-4 flex gap-2 z-50">
                      <button onClick={undoLastThrow} className="bg-yellow-600/50 border border-yellow-600 px-4 py-2 rounded text-yellow-200 font-bold hover:bg-yellow-600 transition-colors">UNDO</button>
                      <button onClick={saveAndExit} className="bg-red-900/50 border border-red-800 px-4 py-2 rounded text-red-200 font-bold hover:bg-red-800 transition-colors">EXIT</button>
                  </div>
                  
-                 <div className="scale-90 lg:scale-100 mb-6">
+                 {/* KORJATTU: Tämä div venyy ja Dartboard täyttää sen (w-full h-full Dartboardissa) */}
+                 <div className="flex-grow w-full flex items-center justify-center">
                      {settings.gameMode === 'x01' ? (
                          <Dartboard onThrow={handleX01Throw} currentUserId={players[currentPlayerIndex]?.id} highlight={botHighlight} />
                      ) : (
-                         <div className="flex flex-col gap-4 w-64">
-                             <div className="text-6xl font-bold text-white text-center font-mono bg-slate-800 p-8 rounded-2xl border-4 border-blue-500">
+                         <div className="flex flex-col gap-4 w-full max-w-sm items-center">
+                             <div className="text-8xl font-bold text-white text-center font-mono bg-slate-800 p-8 rounded-3xl border-4 border-blue-500 w-full">
                                  {players[currentPlayerIndex]?.rtcTarget === 21 ? 'BULL' : players[currentPlayerIndex]?.rtcTarget}
                              </div>
-                             <div className="flex gap-2">
-                                 <button onClick={()=>handleRTCThrow(false)} className="flex-1 h-24 bg-red-900/40 border-2 border-red-600/50 rounded-xl text-4xl text-red-200 transition-all hover:bg-red-900/60 active:scale-95 active:brightness-125">X</button>
-                                 <button onClick={()=>handleRTCThrow(true)} className="flex-1 h-24 bg-green-900/40 border-2 border-green-500/50 rounded-xl text-4xl text-green-200 transition-all hover:bg-green-900/60 active:scale-95 active:brightness-125">✓</button>
+                             <div className="flex gap-4 w-full h-32">
+                                 <button onClick={()=>handleRTCThrow(false)} className="flex-1 bg-red-900/40 border-4 border-red-600/50 rounded-2xl text-6xl text-red-200 transition-all hover:bg-red-900/60 active:scale-95">X</button>
+                                 <button onClick={()=>handleRTCThrow(true)} className="flex-1 bg-green-900/40 border-4 border-green-500/50 rounded-2xl text-6xl text-green-200 transition-all hover:bg-green-900/60 active:scale-95">✓</button>
                              </div>
                          </div>
                      )}
                  </div>
 
                  {settings.gameMode === 'x01' && (
-                     <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 flex justify-between items-center w-full max-w-sm">
+                     <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 flex justify-between items-center w-full max-w-sm mb-4">
                          <span className="text-gray-400">Checkout</span>
                          <span className="text-2xl font-bold text-green-400 font-mono">{getCheckoutGuide(players[currentPlayerIndex]?.scoreLeft) || '-'}</span>
                      </div>
