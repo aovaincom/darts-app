@@ -846,14 +846,12 @@ export default function Home() {
                 </div>
             </div>
 
-            {/* KORJATTU: Poistettu rajoittavat divit ja annettu Dartboardille tilaa */}
             <div className="flex-1 bg-slate-950 flex flex-col items-center justify-center relative p-4">
                  <div className="absolute top-4 right-4 flex gap-2 z-50">
                      <button onClick={undoLastThrow} className="bg-yellow-600/50 border border-yellow-600 px-4 py-2 rounded text-yellow-200 font-bold hover:bg-yellow-600 transition-colors">UNDO</button>
                      <button onClick={saveAndExit} className="bg-red-900/50 border border-red-800 px-4 py-2 rounded text-red-200 font-bold hover:bg-red-800 transition-colors">EXIT</button>
                  </div>
                  
-                 {/* KORJATTU: Tämä div venyy ja Dartboard täyttää sen (w-full h-full Dartboardissa) */}
                  <div className="flex-grow w-full flex items-center justify-center">
                      {settings.gameMode === 'x01' ? (
                          <Dartboard onThrow={handleX01Throw} currentUserId={players[currentPlayerIndex]?.id} highlight={botHighlight} />

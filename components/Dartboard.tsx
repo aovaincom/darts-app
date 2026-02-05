@@ -42,10 +42,18 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, highlight }) => {
   };
 
   const renderSectorButtons = () => {
-      const rDouble = 44; 
-      const rSingle = 31; 
-      const rTriple = 18; 
-      const buttonSize = 10; 
+      // --- MATEMAATTISESTI OPTIMOIDUT ARVOT ---
+      // Tavoite: Ei päällekkäisyyttä sisimmällä (Tripla) kehällä, mutta maksimi koko.
+      // Sektoreita 20 kpl => 18 astetta väliä.
+      
+      // Pallon koko (% taulun leveydestä)
+      const buttonSize = 8.5; 
+
+      // Etäisyydet keskipisteestä (%)
+      // Tripla-kehän on oltava tarpeeksi ulkona, jotta pallot mahtuvat vierekkäin.
+      const rTriple = 25; 
+      const rSingle = 35; // Triple + buttonSize + pieni väli
+      const rDouble = 45; // Single + buttonSize + pieni väli (45% + 4.25% säde = 49.25%, eli aivan reunassa)
 
       return SECTORS.map((num, i) => {
           const angleDeg = (i * 18) - 90;
@@ -54,7 +62,7 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, highlight }) => {
           
           const styleSingle = isBlackSector 
             ? "bg-slate-900 border-slate-600 text-white" 
-            : "bg-slate-100 border-slate-300 text-black";
+            : "bg-slate-100 border-slate-300 text-slate-900";
             
           const styleRing = isBlackSector 
             ? "bg-red-600 border-red-800 text-white" 
@@ -68,39 +76,89 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, highlight }) => {
               transform: 'translate(-50%, -50%)',
           });
 
-          const btnBase = "absolute rounded-full border shadow-md flex items-center justify-center font-bold z-10 transition-transform active:scale-95";
+          const btnBase = "absolute rounded-full border shadow-sm flex items-center justify-center font-bold z-10 transition-transform active:scale-90 hover:brightness-110";
           const flashStyle = "bg-yellow-400 border-yellow-200 text-black scale-125 z-50 shadow-yellow-500/50";
-          const fontSizeClass = "text-[2.5vmin] sm:text-[2vmin] font-bold";
+          
+          // Dynaaminen fonttikoko (vmin varmistaa että teksti skaalautuu aina taulun mukana)
+          const fontSizeClass = "text-[2.2vmin] font-bold leading-none";
 
           return (
               <React.Fragment key={num}>
-                  <button onClick={() => handleClick(num, 2)} className={`${btnBase} ${fontSizeClass} ${flashingBtn === `${num}-2` ? flashStyle : styleRing}`} style={getPosStyle(rDouble)}>D{num}</button>
-                  <button onClick={() => handleClick(num, 1)} className={`${btnBase} ${fontSizeClass} ${flashingBtn === `${num}-1` ? flashStyle : styleSingle}`} style={getPosStyle(rSingle)}>{num}</button>
-                  <button onClick={() => handleClick(num, 3)} className={`${btnBase} ${fontSizeClass} ${flashingBtn === `${num}-3` ? flashStyle : styleRing}`} style={getPosStyle(rTriple)}>T{num}</button>
+                  {/* DOUBLE */}
+                  <button
+                      onClick={() => handleClick(num, 2)}
+                      className={`${btnBase} ${fontSizeClass} ${flashingBtn === `${num}-2` ? flashStyle : styleRing}`}
+                      style={getPosStyle(rDouble)}
+                  >
+                      D{num}
+                  </button>
+
+                  {/* SINGLE */}
+                  <button
+                      onClick={() => handleClick(num, 1)}
+                      className={`${btnBase} ${fontSizeClass} ${flashingBtn === `${num}-1` ? flashStyle : styleSingle}`}
+                      style={getPosStyle(rSingle)}
+                  >
+                      {num}
+                  </button>
+
+                  {/* TRIPLE */}
+                  <button
+                      onClick={() => handleClick(num, 3)}
+                      className={`${btnBase} ${fontSizeClass} ${flashingBtn === `${num}-3` ? flashStyle : styleRing}`}
+                      style={getPosStyle(rTriple)}
+                  >
+                      T{num}
+                  </button>
               </React.Fragment>
           );
       });
   };
 
   return (
-    // TÄRKEÄ MUUTOS: w-full varmistaa leveyden, max-w säätää maksimin
-    <div className="relative w-full h-full flex items-center justify-center select-none p-2">
-      <div className="relative w-full max-w-[90vmin] aspect-square bg-slate-800/40 rounded-full border-4 border-slate-800 shadow-2xl">
-          {/* CENTER HOLE */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[16%] h-[16%] bg-slate-900/60 rounded-full border border-slate-700/50 z-0"></div>
+    // CONTROLS THE OVERALL SIZE. 98vmin takes almost full screen width/height.
+    <div className="relative w-full max-w-[98vmin] aspect-square mx-auto select-none flex items-center justify-center">
+      
+      {/* BACKGROUND BOARD */}
+      <div className="relative w-full h-full bg-slate-800/40 rounded-full border-4 border-slate-800 shadow-2xl">
+          
+          {/* CENTER DECORATION */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[18%] h-[18%] bg-slate-900/60 rounded-full border border-slate-700/50 z-0"></div>
 
           {renderSectorButtons()}
 
-          {/* CORNER BUTTONS */}
-          <button onClick={() => handleClick(0, 0)} className={`absolute top-[2%] left-[2%] w-[14%] h-[14%] rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center shadow-lg active:scale-95 transition-all z-40 ${flashingBtn === '0-0' ? 'bg-red-500 border-white' : ''}`}>
-              <span className="text-[2.5vmin] font-bold text-slate-400">0</span>
+          {/* --- CORNER BUTTONS (ABSOLUTE POSITIONS INSIDE SQUARE) --- */}
+          {/* Nämä ovat nyt "kelluvia" nappeja taulun kulmissa, eivät vie tilaa itse taululta */}
+          
+          {/* MISS (Vasen Ylä) */}
+          <button 
+            onClick={() => handleClick(0, 0)}
+            className={`absolute top-[2%] left-[2%] w-[13%] h-[13%] rounded-full bg-slate-800 border-2 border-slate-600 flex items-center justify-center shadow-lg active:scale-95 transition-all z-40 ${flashingBtn === '0-0' ? 'bg-red-500 border-white' : ''}`}
+          >
+              <span className="text-[2vmin] font-bold text-slate-400">0</span>
           </button>
-          <button onClick={() => handleClick(25, 1)} className={`absolute top-[2%] right-[2%] w-[14%] h-[14%] rounded-full bg-green-700 border-2 border-green-900 flex items-center justify-center shadow-lg active:scale-95 transition-all z-40 ${flashingBtn === '25-1' ? 'bg-yellow-400 border-white text-black' : 'text-white'}`}>
-              <span className="text-[2.5vmin] font-bold">25</span>
+
+          {/* 25 (Oikea Ylä) */}
+          <button 
+            onClick={() => handleClick(25, 1)}
+            className={`absolute top-[2%] right-[2%] w-[13%] h-[13%] rounded-full bg-green-700 border-2 border-green-900 flex items-center justify-center shadow-lg active:scale-95 transition-all z-40 ${flashingBtn === '25-1' ? 'bg-yellow-400 border-white text-black' : 'text-white'}`}
+          >
+              <span className="text-[2vmin] font-bold">25</span>
           </button>
-          <button onClick={() => handleClick(50, 1)} className={`absolute bottom-[2%] right-[2%] w-[14%] h-[14%] rounded-full bg-red-700 border-2 border-red-900 flex items-center justify-center shadow-lg active:scale-95 transition-all z-40 ${flashingBtn === '50-1' ? 'bg-yellow-400 border-white text-black' : 'text-white'}`}>
-              <span className="text-[2.5vmin] font-bold">50</span>
+
+          {/* BULL (Oikea Ala) */}
+          <button 
+            onClick={() => handleClick(50, 1)}
+            className={`absolute bottom-[2%] right-[2%] w-[13%] h-[13%] rounded-full bg-red-700 border-2 border-red-900 flex items-center justify-center shadow-lg active:scale-95 transition-all z-40 ${flashingBtn === '50-1' ? 'bg-yellow-400 border-white text-black' : 'text-white'}`}
+          >
+              <span className="text-[2vmin] font-bold">50</span>
           </button>
+
+           {/* LOGO (Vasen Ala) */}
+           <div className="absolute bottom-[5%] left-[5%] opacity-30 pointer-events-none">
+               <span className="text-[1.5vmin] font-bold text-slate-500 tracking-widest">DARTS</span>
+           </div>
+
       </div>
     </div>
   );
