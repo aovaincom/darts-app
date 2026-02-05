@@ -4,7 +4,6 @@ import React, { useState, useEffect, useMemo } from "react";
 import { Dartboard } from "../components/Dartboard";
 import { getCheckoutGuide } from "../utils/checkouts";
 import { useProfiles, SavedProfile, HistoryEntry } from "../hooks/useProfiles";
-import { getBotTurn } from "../utils/dartbot";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
 // --- TYYPIT ---
@@ -14,7 +13,6 @@ type Throw = {
   totalValue: number;
 };
 
-// Laajennetut statsit
 type PlayerStats = {
   average: number;
   totalScore: number;
@@ -28,10 +26,9 @@ type PlayerStats = {
   scores180: number;
   tonPlusFinishes: number;
   
-  // Uudet X01 Statsit
   first9Sum: number;
   first9Darts: number;
-  legsWonDarts: { [key: number]: number }; // 9, 12, 15, 18, 21, 29, 30
+  legsWonDarts: { [key: number]: number };
 
   rtcTargetsHit: number; 
   rtcDartsThrown: number;
@@ -40,8 +37,6 @@ type PlayerStats = {
   historyX01?: HistoryEntry[];
   historyRTC?: HistoryEntry[];
   gamesPlayed?: number;
-  legsWon: number;
-  setsWon: number;
   rtcGamesPlayed?: number;
   rtcBestDarts?: number;
   rtcTotalThrows?: number;
@@ -62,8 +57,8 @@ type PlayerState = {
   legsWon: number;
   history: Throw[];
   currentVisit: Throw[];
-  lastVisit: Throw[]; // Näytetään edellinen heittosarja kunnes uusi alkaa
-  legDartsThrown: number; // Seurataan legin tikkoja statseja varten
+  lastVisit: Throw[];
+  legDartsThrown: number;
   stats: PlayerStats;
 };
 
@@ -72,6 +67,53 @@ type MatchResult = {
   players: PlayerState[];
   mode: 'x01' | 'rtc';
 } | null;
+
+// --- DARTBOT LOGIC ---
+const getGaussianRandom = (mean: number, stdDev: number) => {
+    const u = 1 - Math.random(); 
+    const v = Math.random();
+    const z = Math.sqrt( -2.0 * Math.log( u ) ) * Math.cos( 2.0 * Math.PI * v );
+    return z * stdDev + mean;
+};
+
+const simulateBotThrowX01 = (targetScore: number, skill: number): Throw => {
+    let aimScore = 20;
+    let aimMult = 3;
+
+    if (targetScore <= 40 && targetScore % 2 === 0 && targetScore > 0) {
+        aimScore = targetScore / 2;
+        aimMult = 2;
+    } else if (targetScore <= 50) {
+        aimScore = targetScore; 
+        aimMult = 1;
+    }
+
+    const hitChance = skill / 100; 
+    const roll = Math.random();
+
+    let finalScore = 0;
+    let finalMult = 1;
+
+    if (roll < hitChance) {
+        finalScore = aimScore;
+        finalMult = aimMult;
+    } else {
+        const missRoll = Math.random();
+        if (missRoll < 0.3) finalScore = 1;
+        else if (missRoll < 0.6) finalScore = 5;
+        else if (missRoll < 0.8) finalScore = 20; 
+        else finalScore = 0; 
+        
+        finalMult = 1;
+        if (Math.random() > 0.95) finalMult = 3;
+    }
+
+    if (isNaN(finalScore)) finalScore = 0;
+    if (isNaN(finalMult)) finalMult = 1;
+
+    return { score: finalScore, multiplier: finalMult, totalValue: finalScore * finalMult };
+};
+
 
 // --- STATS MODAL ---
 const calculateRollingStats = (history: HistoryEntry[], windowSize: number) => {
@@ -110,44 +152,24 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
                     {tab === 'x01' ? (
                         <>
-                            {/* ADVANCED STATS */}
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <div className="bg-slate-900 p-4 rounded border border-slate-700 text-center"><div className="text-gray-500 text-xs">Match AVG</div><div className="text-2xl font-bold text-blue-400">{((profile.stats.totalScore / (profile.stats.totalDarts||1))*3).toFixed(2)}</div></div>
                                 <div className="bg-slate-900 p-4 rounded border border-slate-700 text-center"><div className="text-gray-500 text-xs">First 9 Avg</div><div className="text-2xl font-bold text-purple-400">{profile.stats.first9Darts ? ((profile.stats.first9Sum / profile.stats.first9Darts) * 3).toFixed(2) : '-'}</div></div>
                                 <div className="bg-slate-900 p-4 rounded border border-slate-700 text-center"><div className="text-gray-500 text-xs">High Out</div><div className="text-2xl font-bold text-orange-400">{profile.stats.highestCheckout}</div></div>
                                 <div className="bg-slate-900 p-4 rounded border border-slate-700 text-center"><div className="text-gray-500 text-xs">180s</div><div className="text-2xl font-bold text-red-500">{profile.stats.scores180}</div></div>
                             </div>
-
-                            {/* WINNING DARTS BREAKDOWN */}
                             <div className="bg-slate-900 p-4 rounded border border-slate-700">
-                                <h3 className="text-sm text-gray-400 mb-3 uppercase font-bold">Winning Legs (Darts thrown)</h3>
+                                <h3 className="text-sm text-gray-400 mb-3 uppercase font-bold">Winning Legs</h3>
                                 <div className="grid grid-cols-4 md:grid-cols-7 gap-2 text-center">
                                     {[9, 12, 15, 18, 21, 29, 30].map(k => (
                                         <div key={k} className="bg-slate-800 p-2 rounded">
                                             <div className="text-[10px] text-gray-500">{k===9?'9':(k===30?'30+':`${k-2}-${k}`)}</div>
-                                            {/* KORJAUS TÄSSÄ: lisätty 'as any' tyyppimuunnos */}
                                             <div className="text-lg font-bold text-green-400">{(profile.stats.legsWonDarts as any)?.[k] || 0}</div>
                                         </div>
                                     ))}
                                 </div>
                             </div>
-
                             <div className="bg-slate-900 p-4 rounded border border-slate-700">
-                                <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
-                                    <h3 className="text-sm text-gray-400">Progress</h3>
-                                    <div className="flex gap-2 items-center">
-                                        <label className="text-xs text-gray-400 flex items-center gap-1 cursor-pointer">
-                                            <input type="checkbox" checked={showAllTime} onChange={e => setShowAllTime(e.target.checked)} />
-                                            Cumulative
-                                        </label>
-                                        <select value={rollingWindow} onChange={e => setRollingWindow(Number(e.target.value))} className="bg-slate-800 text-white text-xs border border-slate-600 rounded cursor-pointer">
-                                            <option value="5">5</option>
-                                            <option value="10">10</option>
-                                            <option value="20">20</option>
-                                            <option value="50">50</option>
-                                        </select>
-                                    </div>
-                                </div>
                                 <div style={{ width: '100%', height: 300 }}>
                                     {x01Data.length > 1 ? (
                                         <ResponsiveContainer>
@@ -158,7 +180,7 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                                                 <Tooltip contentStyle={{backgroundColor: '#1e293b'}} />
                                                 <Legend />
                                                 <Line type="monotone" name={`Rolling (${rollingWindow})`} dataKey="rolling" stroke="#4ade80" strokeWidth={2} dot={false} />
-                                                {showAllTime && <Line type="monotone" name="Cumulative Avg" dataKey="cumulative" stroke="#facc15" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
+                                                {showAllTime && <Line type="monotone" name="Cumulative" dataKey="cumulative" stroke="#facc15" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
                                             </LineChart>
                                         </ResponsiveContainer>
                                     ) : <div className="text-center text-gray-500 pt-10">Play more games to see graph</div>}
@@ -166,7 +188,6 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                             </div>
                         </>
                     ) : (
-                        // RTC STATS (Sama kuin aiemmin)
                         <>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <div className="bg-slate-900 p-4 rounded border border-slate-700 text-center"><div className="text-gray-500 text-xs">Games</div><div className="text-2xl font-bold text-white">{profile.stats.rtcGamesPlayed || 0}</div></div>
@@ -174,7 +195,6 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                                 <div className="bg-slate-900 p-4 rounded border border-slate-700 text-center"><div className="text-gray-500 text-xs">Total Throws</div><div className="text-2xl font-bold text-gray-300">{profile.stats.rtcTotalThrows || 0}</div></div>
                                 <div className="bg-slate-900 p-4 rounded border border-slate-700 text-center"><div className="text-gray-500 text-xs">Hit %</div><div className="text-2xl font-bold text-blue-400">{(profile.stats.rtcTotalThrows ? ((profile.stats.rtcTotalHits||0)/profile.stats.rtcTotalThrows*100).toFixed(1) : 0)}%</div></div>
                             </div>
-                            {/* SECTOR GRID (Sama) */}
                             <div className="bg-slate-900 p-4 rounded border border-slate-700 mt-4">
                                 <h3 className="text-sm text-gray-400 mb-3 uppercase font-bold">Sector Accuracy</h3>
                                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-2">
@@ -183,56 +203,17 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
                                         const attempts = stats?.attempts || 0;
                                         const hits = stats?.hits || 0;
                                         const pct = attempts > 0 ? Math.round((hits / attempts) * 100) : 0;
-                                        let bgClass = "bg-slate-800 border-slate-700";
-                                        let textClass = "text-gray-500";
-                                        if (attempts > 0) {
-                                            if (pct >= 50) { bgClass = "bg-green-900/30 border-green-800"; textClass = "text-green-400"; }
-                                            else if (pct >= 30) { bgClass = "bg-yellow-900/30 border-yellow-800"; textClass = "text-yellow-400"; }
-                                            else { bgClass = "bg-red-900/30 border-red-800"; textClass = "text-red-400"; }
-                                        }
+                                        let colorClass = "text-green-400";
+                                        if (pct < 30) colorClass = "text-red-400";
+                                        else if (pct < 50) colorClass = "text-yellow-400";
                                         return (
-                                            <div key={num} className={`${bgClass} border p-2 rounded flex flex-col items-center`}>
+                                            <div key={num} className="bg-slate-800 border border-slate-700 p-2 rounded flex flex-col items-center">
                                                 <div className="text-xs text-gray-400">{num === 21 ? 'BULL' : num}</div>
-                                                <div className={`text-lg font-bold ${textClass}`}>{pct}%</div>
+                                                <div className={`text-lg font-bold ${colorClass}`}>{pct}%</div>
                                                 <div className="text-[10px] text-gray-500">{hits}/{attempts}</div>
                                             </div>
                                         )
                                     })}
-                                </div>
-                            </div>
-
-                            {/* RTC GRAPH */}
-                             <div className="bg-slate-900 p-4 rounded border border-slate-700 mt-4">
-                                <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
-                                    <h3 className="text-sm text-gray-400">Hit % Progress</h3>
-                                    <div className="flex gap-2 items-center">
-                                        <label className="text-xs text-gray-400 flex items-center gap-1 cursor-pointer">
-                                            <input type="checkbox" checked={showAllTime} onChange={e => setShowAllTime(e.target.checked)} />
-                                            Show Cumulative
-                                        </label>
-                                        <select value={rollingWindow} onChange={e => setRollingWindow(Number(e.target.value))} className="bg-slate-800 text-white text-xs border border-slate-600 rounded cursor-pointer">
-                                            <option value="5">Roll 5</option>
-                                            <option value="10">Roll 10</option>
-                                            <option value="20">Roll 20</option>
-                                            <option value="50">Roll 50</option>
-                                            <option value="100">Roll 100</option>
-                                        </select>
-                                    </div>
-                                </div>
-                                <div style={{ width: '100%', height: 300 }}>
-                                    {rtcData.length > 1 ? (
-                                        <ResponsiveContainer>
-                                            <LineChart data={rtcData}>
-                                                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                                                <XAxis dataKey="gameIndex" />
-                                                <YAxis domain={[0, 100]} />
-                                                <Tooltip contentStyle={{backgroundColor: '#1e293b'}} />
-                                                <Legend />
-                                                <Line type="monotone" name={`Rolling % (${rollingWindow})`} dataKey="rolling" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                                                {showAllTime && <Line type="monotone" name="Cumulative %" dataKey="cumulative" stroke="#facc15" strokeWidth={2} strokeDasharray="5 5" dot={false} />}
-                                            </LineChart>
-                                        </ResponsiveContainer>
-                                    ) : <div className="text-center text-gray-500 pt-10">Play more games</div>}
                                 </div>
                             </div>
                         </>
@@ -247,14 +228,12 @@ const StatsModal = ({ profile, onClose }: { profile: SavedProfile, onClose: () =
 export default function Home() {
   const { profiles, createProfile, deleteProfile, updateManyProfiles, getAverage, exportStatsToCSV } = useProfiles();
   
-  // UI State
   const [newProfileName, setNewProfileName] = useState("");
   const [selectedProfileIds, setSelectedProfileIds] = useState<string[]>([]);
   const [gameStarted, setGameStarted] = useState(false);
   const [viewingProfile, setViewingProfile] = useState<SavedProfile | null>(null);
-  const [botHighlight, setBotHighlight] = useState<{score:number, multiplier:number}|null>(null); // Bot visualization
+  const [botHighlight, setBotHighlight] = useState<{score:number, multiplier:number}|null>(null);
   
-  // Game Settings
   const [settings, setSettings] = useState({
     gameMode: 'x01' as 'x01' | 'rtc',
     startScore: 501,
@@ -266,10 +245,8 @@ export default function Home() {
     legsPerSet: 3,
     rtcIncludeBull: true,
   });
-  // Bot Config: Simple boolean for UI, but keeps skill
   const [botConfig, setBotConfig] = useState({ enabled: false, skill: 50 });
 
-  // --- GAME STATE ---
   const [players, setPlayers] = useState<PlayerState[]>([]);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [legStarterIndex, setLegStarterIndex] = useState(0);
@@ -278,10 +255,7 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [matchResult, setMatchResult] = useState<MatchResult>(null);
   
-  // HISTORY STATE (Undo varten)
   const [historyStack, setHistoryStack] = useState<string[]>([]);
-
-  // --- GAME LOGIC ---
 
   const startGame = () => {
     const humanPlayers = selectedProfileIds
@@ -309,12 +283,11 @@ export default function Home() {
       scoreLeft: settings.startScore,
       rtcTarget: 1, rtcFinished: false,
       setsWon: 0, legsWon: 0,
-      history: [], currentVisit: [], lastVisit: [], // LASTVISIT lisätty
-      legDartsThrown: 0, // NEW for stats
+      history: [], currentVisit: [], lastVisit: [],
+      legDartsThrown: 0, 
       stats: { 
           average: 0, totalScore: 0, totalDarts: 0, highestCheckout: 0, scores60plus: 0, scores80plus: 0, scores100plus: 0, scores120plus: 0, scores140plus: 0, scores180: 0, tonPlusFinishes: 0, rtcTargetsHit: 0, rtcDartsThrown: 0, rtcSectorHistory: {},
-          first9Sum: 0, first9Darts: 0, legsWonDarts: { 9: 0, 12: 0, 15: 0, 18: 0, 21: 0, 29: 0, 30: 0 },
-          legsWon: 0, setsWon: 0
+          first9Sum: 0, first9Darts: 0, legsWonDarts: { 9: 0, 12: 0, 15: 0, 18: 0, 21: 0, 29: 0, 30: 0 }
       }
   });
 
@@ -346,23 +319,15 @@ export default function Home() {
           else if (visitTotal >= 80) s.scores80plus++;
           else if (visitTotal >= 60) s.scores60plus++;
           
-          // First 9 Avg
           if (p.legDartsThrown < 9) {
               const dartsToCount = Math.min(dartsCount, 9 - p.legDartsThrown);
-              // Jos heitto oli bust, pisteitä ei tullut, mutta tikat meni. Tässä yksinkertaistus: bust ei lisää scorea first9Summaan
-              if (visitTotal > 0) {
-                  // Oletetaan tasainen jakauma tai kaikki pisteet (riittävän tarkka harrastekäyttöön)
-                  // Tarkempi olisi laskea per tikka, mutta mennään visit-tasolla
-                  s.first9Sum += visitTotal; 
-              }
+              if (visitTotal > 0) s.first9Sum += visitTotal; 
               s.first9Darts += dartsToCount;
           }
 
           if (isCheckout) {
               if (visitTotal > s.highestCheckout) s.highestCheckout = visitTotal;
               if (visitTotal >= 100) s.tonPlusFinishes++;
-              
-              // Legs Won Darts Category
               const totalLegDarts = p.legDartsThrown + dartsCount;
               if (totalLegDarts <= 9) s.legsWonDarts[9]++;
               else if (totalLegDarts <= 12) s.legsWonDarts[12]++;
@@ -376,10 +341,8 @@ export default function Home() {
       return s;
   };
 
-  // 3. X01 Logic
   const handleX01Throw = (score: number, multiplier: number) => {
       if (isProcessing || matchResult) return;
-      
       saveState();
 
       setPlayers(prev => {
@@ -387,7 +350,6 @@ export default function Home() {
           const p = newPlayers[currentPlayerIndex];
           if (p.isBot) return prev; 
 
-          // Jos uusi vuoro, tyhjennä lastVisit, jotta "edelliset 3" poistuu näkyvistä vasta kun uusi heitto alkaa
           if (p.currentVisit.length === 0) p.lastVisit = [];
 
           const val = score * multiplier;
@@ -413,10 +375,14 @@ export default function Home() {
                   setPlayers(bustPrev => {
                       const bustPlayers = JSON.parse(JSON.stringify(bustPrev));
                       const bp = bustPlayers[currentPlayerIndex];
-                      bp.stats.totalDarts += bp.currentVisit.length;
-                      bp.legDartsThrown += bp.currentVisit.length; // Add darts to leg total
                       
-                      bp.lastVisit = [...bp.currentVisit]; // Tallenna näytettäväksi
+                      // BUST: Palauta pisteet
+                      const pointsReducedInTurn = bp.currentVisit.slice(0, -1).reduce((acc: number, t: Throw) => acc + t.totalValue, 0);
+                      bp.scoreLeft += pointsReducedInTurn; 
+
+                      bp.stats.totalDarts += bp.currentVisit.length;
+                      bp.legDartsThrown += bp.currentVisit.length;
+                      bp.lastVisit = [...bp.currentVisit]; 
                       bp.currentVisit = [];
                       
                       setCurrentPlayerIndex((currentPlayerIndex + 1) % bustPlayers.length);
@@ -445,8 +411,7 @@ export default function Home() {
                       const turnTotal = tp.currentVisit.reduce((a:number,b:Throw)=>a+b.totalValue,0);
                       tp.stats = calculateStats(tp, turnTotal, 3, false);
                       tp.legDartsThrown += 3;
-                      
-                      tp.lastVisit = [...tp.currentVisit]; // Tallenna
+                      tp.lastVisit = [...tp.currentVisit]; 
                       tp.currentVisit = [];
                       setCurrentPlayerIndex((currentPlayerIndex + 1) % turnPlayers.length);
                       return turnPlayers;
@@ -458,10 +423,8 @@ export default function Home() {
       });
   };
 
-  // 4. RTC Logic
   const handleRTCThrow = (hit: boolean) => {
       if (isProcessing || matchResult) return;
-      
       saveState();
 
       setPlayers(prev => {
@@ -469,7 +432,7 @@ export default function Home() {
           const p = newPlayers[currentPlayerIndex];
           if (p.isBot) return prev;
 
-          if (p.currentVisit.length === 0) p.lastVisit = []; // Reset visual
+          if (p.currentVisit.length === 0) p.lastVisit = [];
 
           if (p.rtcFinished) {
                setIsProcessing(true);
@@ -528,7 +491,6 @@ export default function Home() {
       });
   };
 
-  // 5. Win Handler
   const handleWin = (winner: PlayerState, currentPlayers: PlayerState[]) => {
       winner.legsWon++;
       let matchWon = false;
@@ -562,8 +524,8 @@ export default function Home() {
                   resetP.forEach((pl: PlayerState) => { 
                       pl.scoreLeft = settings.startScore; 
                       pl.currentVisit = []; 
-                      pl.lastVisit = []; // Reset last visit on new leg
-                      pl.legDartsThrown = 0; // Reset leg stats
+                      pl.lastVisit = []; 
+                      pl.legDartsThrown = 0; 
                   });
                   setCurrentPlayerIndex(nextStarter);
                   return resetP;
@@ -573,7 +535,6 @@ export default function Home() {
       }
   };
 
-  // 6. Bot Loop
   useEffect(() => {
       if (!gameStarted || matchResult || players.length === 0) return;
       const currentPlayer = players[currentPlayerIndex];
@@ -581,48 +542,52 @@ export default function Home() {
       if (currentPlayer?.isBot && !isProcessing) {
           const timer = setTimeout(() => {
               if (settings.gameMode === 'x01') {
-                   const throws = getBotTurn(currentPlayer.scoreLeft, currentPlayer.botSkill);
+                   const throws: Throw[] = [];
+                   let tempScore = currentPlayer.scoreLeft;
+                   let isBust = false;
+
+                   for(let i=0; i<3; i++) {
+                       if (tempScore === 0) break;
+                       
+                       const t = simulateBotThrowX01(tempScore, currentPlayer.botSkill);
+                       const val = t.score * t.multiplier;
+                       const next = tempScore - val;
+                       
+                       if (settings.doubleOut) {
+                           if (next < 0 || next === 1 || (next === 0 && t.multiplier !== 2 && t.score !== 50)) isBust = true;
+                       } else {
+                           if (next < 0) isBust = true;
+                       }
+
+                       if (isBust) {
+                           throws.push({...t, totalValue: val});
+                           break;
+                       }
+                       
+                       tempScore = next;
+                       throws.push({...t, totalValue: val});
+                   }
+
                    setPlayers(prev => {
                        const newP = JSON.parse(JSON.stringify(prev));
                        const bot = newP[currentPlayerIndex];
-                       // Clear last visit when bot starts throwing
                        if (bot.currentVisit.length === 0) bot.lastVisit = [];
                        
-                       let bust = false;
-                       let tempS = bot.scoreLeft;
-                       const visit: Throw[] = [];
-                       
-                       // VISUALIZE THROW 1
-                       const t1 = throws[0];
-                       setBotHighlight({score: t1.score, multiplier: t1.multiplier});
-                       
-                       for (const t of throws) {
-                           const val = t.score * t.multiplier;
-                           const next = tempS - val;
-                           let isBust = false;
-                           if (settings.doubleOut) {
-                               if (next < 0 || next === 1 || (next === 0 && t.multiplier !== 2 && t.score !== 50)) isBust = true;
-                           } else {
-                               if (next < 0) isBust = true;
-                           }
+                       if (throws.length > 0) setBotHighlight({score: throws[0].score, multiplier: throws[0].multiplier});
 
-                           if (isBust) {
-                               bust = true;
-                               visit.push({...t, totalValue: val});
-                               break;
-                           }
-                           tempS = next;
-                           visit.push({...t, totalValue: val});
-                           if (next === 0) break;
+                       bot.currentVisit = throws;
+                       const vTotal = throws.reduce((a:number,b:Throw)=>a+b.totalValue,0);
+                       
+                       if (!isBust) bot.scoreLeft -= vTotal;
+                       
+                       bot.stats = calculateStats(bot, isBust ? 0 : vTotal, throws.length, (!isBust && bot.scoreLeft===0));
+                       if (!isBust) bot.legDartsThrown += throws.length;
+                       else {
+                           bot.legDartsThrown += throws.length;
+                           bot.stats.totalDarts += throws.length;
                        }
                        
-                       bot.currentVisit = visit;
-                       const vTotal = visit.reduce((a:number,b:Throw)=>a+b.totalValue,0);
-                       if (!bust) bot.scoreLeft -= vTotal;
-                       bot.stats = calculateStats(bot, bust ? 0 : vTotal, visit.length, (!bust && bot.scoreLeft===0));
-                       if (!bust) bot.legDartsThrown += visit.length;
-                       
-                       if (bot.scoreLeft === 0 && !bust) {
+                       if (bot.scoreLeft === 0 && !isBust) {
                            handleWin(bot, newP);
                        } else {
                            setIsProcessing(true);
@@ -630,6 +595,12 @@ export default function Home() {
                                setPlayers(nextPrev => {
                                    const nextP = JSON.parse(JSON.stringify(nextPrev));
                                    const bp = nextP[currentPlayerIndex];
+                                   
+                                   if (isBust) { // Jos bust, palauta pisteet (vaikka botilla laskettiin tempScorella, visuaalisuus tärkeä)
+                                       const pointsReduced = bp.currentVisit.slice(0, -1).reduce((acc:number,t:Throw)=>acc+t.totalValue,0);
+                                       if (isBust) bp.scoreLeft += pointsReduced; // Botin bust-logiikka yksinkertaistettu, mutta tämä pitää pisteet kurissa
+                                   }
+
                                    bp.lastVisit = [...bp.currentVisit];
                                    bp.currentVisit = [];
                                    setCurrentPlayerIndex((currentPlayerIndex + 1) % nextP.length);
@@ -641,8 +612,8 @@ export default function Home() {
                        }
                        return newP;
                    });
+
               } else {
-                   // RTC Bot
                    setPlayers(prev => {
                        const newP = JSON.parse(JSON.stringify(prev));
                        const bot = newP[currentPlayerIndex];
@@ -652,24 +623,35 @@ export default function Home() {
                        let finished = false;
                        let tempT = bot.rtcTarget;
                        const finishTarget = settings.rtcIncludeBull ? 21 : 20;
-
-                       // Visualize simulated hit
-                       setBotHighlight({score: tempT, multiplier: 1});
+                       const visit: Throw[] = [];
 
                        for(let i=0; i<3; i++) {
                            if (tempT > finishTarget) break;
-                           if (Math.random()*100 < (bot.botSkill+10)) {
+                           
+                           const hitChance = bot.botSkill / 100;
+                           const roll = Math.random();
+                           
+                           if (roll < hitChance + 0.1) {
                                hits++;
-                               if (tempT === finishTarget) finished = true;
+                               visit.push({ score: tempT, multiplier: 1, totalValue: 0 }); 
+                               if (tempT === finishTarget) {
+                                   finished = true;
+                                   break;
+                               }
                                tempT++;
+                           } else {
+                               visit.push({ score: 0, multiplier: 0, totalValue: 0 });
                            }
                        }
-                       bot.stats.rtcDartsThrown += 3;
+                       
+                       if (visit.length > 0) setBotHighlight({score: visit[0].score, multiplier: visit[0].multiplier});
+
+                       bot.stats.rtcDartsThrown += visit.length;
                        bot.stats.rtcTargetsHit += hits;
                        bot.rtcTarget = tempT;
                        if (finished) bot.rtcFinished = true;
                        
-                       bot.currentVisit = Array(3).fill({score:0, multiplier:1, totalValue:0});
+                       bot.currentVisit = visit;
                        
                        setIsProcessing(true);
                        setTimeout(() => {
@@ -703,7 +685,6 @@ export default function Home() {
   }, [currentPlayerIndex, gameStarted, isProcessing, matchResult]);
 
   const saveAndExit = () => {
-    // TALLENNUS
     const updates: any[] = [];
     players.forEach(p => {
         if (!p.isBot && p.profileId) {
@@ -722,7 +703,9 @@ export default function Home() {
                     tonPlusFinishes: p.stats.tonPlusFinishes,
                     first9Sum: p.stats.first9Sum,
                     first9Darts: p.stats.first9Darts,
-                    legsWonDarts: p.stats.legsWonDarts
+                    legsWonDarts: p.stats.legsWonDarts,
+                    legsWon: p.legsWon,
+                    setsWon: p.setsWon
                 }});
             } else {
                 updates.push({ id: p.profileId, stats: {
@@ -736,24 +719,20 @@ export default function Home() {
         }
     });
     updateManyProfiles(updates);
-    
-    // NOLLAUS JA PALUU MENUUN
     setMatchResult(null); 
     setGameStarted(false);
     setSelectedProfileIds([]);
     setHistoryStack([]);
   };
 
-  // --- RENDER ---
   return (
     <div className="h-screen bg-slate-950 text-white flex overflow-hidden font-sans">
       {viewingProfile && <StatsModal profile={viewingProfile} onClose={() => setViewingProfile(null)} />}
 
       {!gameStarted ? (
         <div className="min-h-screen w-full overflow-auto bg-slate-900 p-4 flex flex-col items-center">
-            <h1 className="text-4xl font-bold mb-8 text-orange-500 mt-8">Darts Trainer</h1>
+            <h1 className="text-4xl font-bold mb-8 text-orange-500 mt-8">DARTS PRO CENTER</h1>
             <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                {/* Profiles */}
                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
                     <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold text-green-400">Select Players</h2> <button onClick={exportStatsToCSV} className="text-xs bg-slate-700 px-2 py-1 rounded">CSV</button></div>
                     <div className="space-y-2 max-h-60 overflow-y-auto mb-4">
@@ -773,7 +752,6 @@ export default function Home() {
                     <div className="flex gap-2"><input value={newProfileName} onChange={e => setNewProfileName(e.target.value)} className="bg-slate-900 border border-slate-600 rounded px-2 flex-1" placeholder="Name..." /><button onClick={()=>{createProfile(newProfileName); setNewProfileName("")}} className="bg-blue-600 px-4 rounded">Add</button></div>
                 </div>
                 
-                {/* Settings */}
                 <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
                      <h2 className="text-xl font-bold text-orange-400 mb-4">Settings</h2>
                      <div className="flex gap-2 mb-4">
@@ -827,7 +805,6 @@ export default function Home() {
                      <div className="bg-slate-900/50 p-4 rounded mb-4">
                          <div className="flex justify-between items-center mb-2">
                              <span className="text-gray-400">Add Bot?</span>
-                             {/* Toggle Switch botille */}
                              <button onClick={()=>setBotConfig(b=>({...b, enabled: !b.enabled}))} className={`w-12 h-6 rounded-full transition-colors relative ${botConfig.enabled ? 'bg-blue-600' : 'bg-slate-600'}`}>
                                  <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${botConfig.enabled ? 'left-7' : 'left-1'}`}></div>
                              </button>
@@ -844,7 +821,6 @@ export default function Home() {
             </div>
         </div>
       ) : (
-        // GAME SCREEN
         <>
             <div className="w-1/3 min-w-[300px] bg-slate-900 border-r border-slate-800 flex flex-col">
                 <div className="p-4 border-b border-slate-800 font-bold text-orange-500">{settings.gameMode==='x01'?'GAME ON':'ROUND THE CLOCK'}</div>
@@ -860,7 +836,6 @@ export default function Home() {
                                             : `Darts: ${p.stats.rtcDartsThrown} (${p.stats.rtcDartsThrown > 0 ? Math.round((p.stats.rtcTargetsHit/p.stats.rtcDartsThrown)*100) : 0}%)`
                                         }
                                     </div>
-                                    {/* UUSI: Näytä joko currentVisit TAI lastVisit */}
                                     <div className="flex gap-1 mt-1 h-5">
                                         {(p.currentVisit.length > 0 ? p.currentVisit : p.lastVisit).map((t, idx) => (
                                             <div key={idx} className="bg-slate-700 px-1 rounded text-[10px] text-white flex items-center">{t.multiplier>1?(t.multiplier===3?'T':'D'):''}{t.score}</div>
@@ -892,7 +867,6 @@ export default function Home() {
 
                  <div className="scale-90 lg:scale-100 mb-6">
                      {settings.gameMode === 'x01' ? (
-                         // Välitetään botin highlight tieto taululle
                          <Dartboard onThrow={handleX01Throw} currentUserId={players[currentPlayerIndex]?.id} highlight={botHighlight} />
                      ) : (
                          <div className="flex flex-col gap-4 w-64">
