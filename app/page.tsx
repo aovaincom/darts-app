@@ -376,7 +376,6 @@ export default function Home() {
                       const bustPlayers = JSON.parse(JSON.stringify(bustPrev));
                       const bp = bustPlayers[currentPlayerIndex];
                       
-                      // BUST: Palauta pisteet
                       const pointsReducedInTurn = bp.currentVisit.slice(0, -1).reduce((acc: number, t: Throw) => acc + t.totalValue, 0);
                       bp.scoreLeft += pointsReducedInTurn; 
 
@@ -596,9 +595,9 @@ export default function Home() {
                                    const nextP = JSON.parse(JSON.stringify(nextPrev));
                                    const bp = nextP[currentPlayerIndex];
                                    
-                                   if (isBust) { // Jos bust, palauta pisteet (vaikka botilla laskettiin tempScorella, visuaalisuus tärkeä)
+                                   if (isBust) { 
                                        const pointsReduced = bp.currentVisit.slice(0, -1).reduce((acc:number,t:Throw)=>acc+t.totalValue,0);
-                                       if (isBust) bp.scoreLeft += pointsReduced; // Botin bust-logiikka yksinkertaistettu, mutta tämä pitää pisteet kurissa
+                                       if (isBust) bp.scoreLeft += pointsReduced;
                                    }
 
                                    bp.lastVisit = [...bp.currentVisit];
@@ -860,11 +859,6 @@ export default function Home() {
                      <button onClick={saveAndExit} className="bg-red-900/50 border border-red-800 px-4 py-2 rounded text-red-200 font-bold hover:bg-red-800 transition-colors">EXIT</button>
                  </div>
                  
-                 <div className="mb-4 text-center">
-                     <h2 className="text-4xl font-bold text-white">{players[currentPlayerIndex]?.name}</h2>
-                     <p className="text-blue-500 tracking-widest text-sm uppercase">{players[currentPlayerIndex]?.isBot ? 'Bot Throwing...' : 'Throw Darts'}</p>
-                 </div>
-
                  <div className="scale-90 lg:scale-100 mb-6">
                      {settings.gameMode === 'x01' ? (
                          <Dartboard onThrow={handleX01Throw} currentUserId={players[currentPlayerIndex]?.id} highlight={botHighlight} />
