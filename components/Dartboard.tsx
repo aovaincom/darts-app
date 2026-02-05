@@ -7,7 +7,7 @@ const SECTORS = [20, 1, 18, 4, 13, 6, 10, 15, 2, 17, 3, 19, 7, 16, 8, 11, 14, 9,
 interface DartboardProps {
   onThrow: (score: number, multiplier: number) => void;
   currentUserId?: number; 
-  highlight?: { score: number; multiplier: number } | null; // UUSI: Botin heitto
+  highlight?: { score: number; multiplier: number } | null;
 }
 
 export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, highlight }) => {
@@ -16,7 +16,19 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
   const [hitPoint, setHitPoint] = useState<{x: number, y: number} | null>(null);
   const [flashingSector, setFlashingSector] = useState<string | null>(null);
 
-  // Tyhjennetään viimeinen heitto, kun vuoro vaihtuu
+  // UUSI GEOMETRIA (Tasa-arvoiset renkaat)
+  // Kokonaissäde 200 yksikköä
+  const R_BULL = 15;          // Hieman isompi
+  const R_OUTER_BULL = 35;    // Hieman isompi
+  
+  // Lasketaan lopputila (200 - 35 = 165). Jaetaan tasan 4 vyöhykkeelle (Inner Single, Triple, Outer Single, Double)
+  const ZONE_WIDTH = 41.25; 
+  
+  const R_INNER_SINGLE = R_OUTER_BULL + ZONE_WIDTH; // 35 + 41.25 = 76.25
+  const R_TRIPLE = R_INNER_SINGLE + ZONE_WIDTH;     // 76.25 + 41.25 = 117.5
+  const R_OUTER_SINGLE = R_TRIPLE + ZONE_WIDTH;     // 117.5 + 41.25 = 158.75
+  const R_DOUBLE = R_OUTER_SINGLE + ZONE_WIDTH;     // 158.75 + 41.25 = 200
+
   useEffect(() => {
     setLastHit(null);
   }, [currentUserId]);
@@ -35,28 +47,19 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
     }
   }, [flashingSector]);
 
-  // --- UUSI: VISUALISOI BOTIN HEITTO ---
   useEffect(() => {
     if (highlight) {
         const { score, multiplier } = highlight;
         const id = `${score}-${multiplier}`;
-        
-        // 1. Aseta välkkyvä sektori
         setFlashingSector(id);
-        
-        // 2. Päivitä tekstikenttä taulun alla
         const label = score === 25 
             ? (multiplier === 2 ? 'BULL' : '25') 
             : (score === 50 ? 'BULL' : `${multiplier > 1 ? (multiplier === 3 ? 'T' : 'D') : ''}${score}`);
-            
         setLastHit(label);
-        
-        // 3. Soita ääni
         playHitSound();
     }
   }, [highlight]);
 
-  // --- ÄÄNILOGIIKKA ---
   const playHitSound = () => {
     try {
         const audio = new Audio('/sounds/dart-throw.mp3');
@@ -77,7 +80,6 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
 
   const handleClick = (e: React.MouseEvent) => {
     if (!svgRef.current) return;
-    
     playHitSound();
 
     const rect = svgRef.current.getBoundingClientRect();
@@ -96,25 +98,19 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
     let multiplier = 0;
     let score = 0;
 
-    const R_BULL = 12;
-    const R_OUTER_BULL = 30;
-    const R_TRIPLE_IN = 95;
-    const R_TRIPLE_OUT = 115;
-    const R_DOUBLE_IN = 160;
-    const R_DOUBLE_OUT = 180;
-
+    // UUSI OSUMALOGIIKKA (Vastaa uutta geometriaa)
     if (r < R_BULL) {
-      score = 50; multiplier = 1; // Inner Bull on teknisesti double 25 säännöissä, mutta usein merkitään 50-1 tai 25-2
+      score = 50; multiplier = 1;
     } else if (r < R_OUTER_BULL) {
       score = 25; multiplier = 1;
-    } else if (r > R_DOUBLE_OUT) {
+    } else if (r > R_DOUBLE) {
       score = 0; multiplier = 0; 
     } else {
       const sectorIndex = Math.floor(((angle + 9) % 360) / 18);
       score = SECTORS[sectorIndex];
 
-      if (r >= R_TRIPLE_IN && r <= R_TRIPLE_OUT) multiplier = 3;
-      else if (r >= R_DOUBLE_IN && r <= R_DOUBLE_OUT) multiplier = 2;
+      if (r >= R_INNER_SINGLE && r <= R_TRIPLE) multiplier = 3;
+      else if (r >= R_OUTER_SINGLE && r <= R_DOUBLE) multiplier = 2;
       else multiplier = 1;
     }
 
@@ -134,8 +130,8 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
       const endAngle = startAngle + 18;
       
       const isEven = i % 2 === 0;
-      const baseSectorColor = isEven ? "#000000" : "#f1ebd4";
-      const baseRingColor = isEven ? "#e11d48" : "#10b981";
+      const baseSectorColor = isEven ? "#0f172a" : "#f1f5f9"; // Tumma (Slate-900) vs Vaalea (Slate-100)
+      const baseRingColor = isEven ? "#ef4444" : "#22c55e"; // Punainen vs Vihreä
 
       const createArc = (innerR: number, outerR: number, color: string, mult: number) => {
         const start = getCoordinates(startAngle, outerR);
@@ -155,19 +151,25 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
         `;
         return (
             <path 
-                key={id} 
+                key={`${id}-${innerR}`} // Unique key
                 d={d} 
                 fill={isFlashing ? "#fbbf24" : color} 
                 strokeWidth="1" 
-                stroke="#555" 
+                stroke="#334155" // Hieman vaaleampi viiva
                 style={{ transition: "fill 0.1s ease-out", filter: isFlashing ? "brightness(1.5)" : "none" }}
             />
         );
       };
 
-      paths.push(createArc(30, 160, baseSectorColor, 1)); 
-      paths.push(createArc(95, 115, baseRingColor, 3));
-      paths.push(createArc(160, 180, baseRingColor, 2));
+      // PIIRRETÄÄN VYÖHYKKEET (Järjestys: Sisältä ulos)
+      // 1. Inner Single
+      paths.push(createArc(R_OUTER_BULL, R_INNER_SINGLE, baseSectorColor, 1));
+      // 2. Triple (Nyt iso!)
+      paths.push(createArc(R_INNER_SINGLE, R_TRIPLE, baseRingColor, 3));
+      // 3. Outer Single
+      paths.push(createArc(R_TRIPLE, R_OUTER_SINGLE, baseSectorColor, 1));
+      // 4. Double (Nyt iso!)
+      paths.push(createArc(R_OUTER_SINGLE, R_DOUBLE, baseRingColor, 2));
     }
     return paths;
   };
@@ -175,7 +177,8 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
   const renderNumbers = () => {
     return SECTORS.map((num, i) => {
       const angleFromTop = i * 18;
-      const pos = getCoordinates(angleFromTop, 195);
+      // Numerot vähän ulommas (R_DOUBLE + 20)
+      const pos = getCoordinates(angleFromTop, R_DOUBLE + 20);
       let rotation = angleFromTop;
       if (angleFromTop > 90 && angleFromTop < 270) {
         rotation += 180;
@@ -186,7 +189,7 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
           key={`num-${num}`}
           x={pos.x}
           y={pos.y}
-          fill="#fff"
+          fill="#94a3b8" // Slate-400 (hillitty numero)
           fontSize="24"
           fontFamily="Arial, sans-serif"
           fontWeight="bold"
@@ -201,30 +204,35 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
   };
 
   return (
-    <div className="flex flex-col items-center">
-      <div className="relative drop-shadow-2xl">
+    <div className="flex flex-col items-center w-full h-full">
+      {/* VIEWBOX kasvatettu (-260), jotta numerot mahtuvat varmasti. 
+         Koko skaalautuu parentin mukaan (w-full).
+      */}
+      <div className="relative drop-shadow-2xl w-full h-full">
         <svg
           ref={svgRef}
-          width="400"
-          height="400"
-          viewBox="-230 -230 460 460"
+          viewBox="-260 -260 520 520" 
           onClick={handleClick}
-          className="cursor-pointer select-none"
+          className="cursor-pointer select-none w-full h-auto max-h-[80vh]" // max-h varmistaa ettei mene ruudun yli pystysuunnassa
         >
-          <circle r="205" fill="#18181b" />
+          {/* Tausta (musta ympyrä numeroiden taakse) */}
+          <circle r={R_DOUBLE + 35} fill="#0f172a" /> 
+          
           {renderSectors()}
           
+          {/* Outer Bull */}
           <circle 
-            r="30" 
+            r={R_OUTER_BULL} 
             fill={flashingSector === "25-1" ? "#fbbf24" : "#10b981"} 
-            stroke="#555" 
+            stroke="#334155" 
             strokeWidth="1" 
             style={{ transition: "fill 0.1s", filter: flashingSector === "25-1" ? "brightness(1.5)" : "none" }}
           />
+          {/* Inner Bull */}
           <circle 
-            r="12" 
+            r={R_BULL} 
             fill={flashingSector === "50-1" ? "#fbbf24" : "#e11d48"} 
-            stroke="#555" 
+            stroke="#334155" 
             strokeWidth="1" 
             style={{ transition: "fill 0.1s", filter: flashingSector === "50-1" ? "brightness(1.5)" : "none" }}
           />
@@ -235,7 +243,7 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
             <circle 
               cx={hitPoint.x} 
               cy={hitPoint.y} 
-              r="6" 
+              r="8" 
               fill="#fbbf24"
               stroke="white"
               strokeWidth="2"
@@ -245,7 +253,7 @@ export const Dartboard: React.FC<DartboardProps> = ({ onThrow, currentUserId, hi
         </svg>
       </div>
 
-      <div className="mt-4 text-2xl font-bold font-mono text-orange-500 h-8 transition-opacity duration-300">
+      <div className="mt-2 text-3xl font-black font-mono text-orange-500 h-10 transition-opacity duration-300 drop-shadow-md">
         {lastHit || " "} 
       </div>
     </div>
